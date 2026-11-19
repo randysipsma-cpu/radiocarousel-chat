@@ -1,0 +1,6 @@
+name = "radiocarousel-irc-gateway-test"
+main = "src/index.js"
+compatibility_date = "2026-11-01"
+
+# Configure ALLOWED_ORIGINS in the Worker environment before deployment.
+# Example: https://your-preview.pages.dev (exact origin, no trailing slash).
