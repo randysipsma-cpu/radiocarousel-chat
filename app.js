@@ -1,6 +1,6 @@
 'use strict';
 // Set only after a verified secure IRC gateway is deployed. Never include passwords.
-const GATEWAY_URL = '';
+const GATEWAY_URL = 'wss://radiocarousel-irc-gateway-test.randysipsma.workers.dev/';
 const CHANNEL = '#radiocarousel';
 const $ = id => document.getElementById(id);
 let socket = null;
