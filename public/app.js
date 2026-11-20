@@ -5,7 +5,19 @@ const $=id=>document.getElementById(id);
 const validNick=/^[A-Za-z\[\]\\`_^{|}][A-Za-z0-9\[\]\\`_^{|}-]{0,23}$/;
 let heartbeatTimer=null,lastPong=0;let socket=null,connected=false,desiredNick='',attempt=0,retryTimer=null,session=0,manualStop=false,accountMode=false,accountPassword=null;
 function status(value){$('status').textContent=value;$('status').dataset.state=connected?'online':'offline';$('connection-info').textContent=value}
-function append(sender,body){const p=document.createElement('p'),b=document.createElement('strong');b.textContent=sender+': ';p.append(b,document.createTextNode(body));$('messages').append(p);$('messages').scrollTop=$('messages').scrollHeight}
+const prefs={compact:false,timestamps:true,mentions:true};
+try{Object.assign(prefs,JSON.parse(localStorage.getItem('rc-chat-prefs')||'{}'))}catch{}
+function applyPrefs(){document.body.classList.toggle('compact-chat',!!prefs.compact);document.body.classList.toggle('hide-times',!prefs.timestamps);$('pref-compact').checked=!!prefs.compact;$('pref-time').checked=!!prefs.timestamps;$('pref-mentions').checked=!!prefs.mentions}
+function savePrefs(){try{localStorage.setItem('rc-chat-prefs',JSON.stringify(prefs))}catch{}applyPrefs()}
+function append(sender,body){
+ const p=document.createElement('p'),heading=document.createElement('span'),name=document.createElement('button'),time=document.createElement('time'),content=document.createElement('span');
+ p.className='chat-line';heading.className='chat-meta';name.type='button';name.className='chat-nick';name.textContent=sender;name.title='Vermeld '+sender;
+ name.addEventListener('click',()=>{if(!connected)return;const input=$('message');input.value+=(input.value&&!input.value.endsWith(' ')?' ':'')+sender+': ';input.focus()});
+ time.className='chat-time';const now=new Date();time.dateTime=now.toISOString();time.textContent=now.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'});time.title='Ontvangsttijd op dit apparaat';
+ heading.append(name,time);content.className='chat-text';content.textContent=body;p.append(heading,content);
+ if(prefs.mentions&&desiredNick&&sender.toLowerCase()!==desiredNick.toLowerCase()&&body.toLowerCase().split(/[^a-z0-9_]+/i).includes(desiredNick.toLowerCase()))p.classList.add('mentioned');
+ $('messages').append(p);while($('messages').children.length>250)$('messages').firstElementChild.remove();$('messages').scrollTop=$('messages').scrollHeight
+}
 function enable(v){connected=v;$('login-panel').hidden=v;$('message').disabled=!v;$('sendbtn').disabled=!v;$('status').dataset.state=v?'online':'offline'}
 function stopHeartbeat(){if(heartbeatTimer!==null){clearInterval(heartbeatTimer);heartbeatTimer=null}}
 function startHeartbeat(){stopHeartbeat();lastPong=Date.now();heartbeatTimer=setInterval(()=>{if(document.hidden||!socket||socket.readyState!==WebSocket.OPEN)return;if(Date.now()-lastPong>65000){status('Verbinding controleren…');socket.close();return}socket.send(JSON.stringify({type:'ping'}))},25000)}
@@ -75,6 +87,14 @@ $('account-mode').addEventListener('click',()=>setLoginMode('account'));
 setLoginMode('guest');
 if(window.matchMedia('(max-width: 760px)').matches)$('users-details').open=false;
 
+const settings=$('settings-dialog');
+$('open-settings').addEventListener('click',()=>{applyPrefs();settings.showModal()});
+$('close-settings').addEventListener('click',()=>settings.close());
+settings.addEventListener('click',event=>{if(event.target===settings)settings.close()});
+for(const [id,key] of [['pref-compact','compact'],['pref-time','timestamps'],['pref-mentions','mentions']])$(id).addEventListener('change',event=>{prefs[key]=event.target.checked;savePrefs()});
+$('emoji-toggle').addEventListener('click',()=>{$('emoji-picker').hidden=!$('emoji-picker').hidden});
+$('emoji-picker').addEventListener('click',event=>{const button=event.target.closest('button[data-emoji]');if(!button)return;const input=$('message');input.value+=button.dataset.emoji;input.focus();$('emoji-picker').hidden=true});
+applyPrefs();
 // Service worker enables future Web Push support; a push sender and subscriptions
 // must be configured before notifications can arrive while the app is closed.
 if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{})})}
