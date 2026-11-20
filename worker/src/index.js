@@ -78,6 +78,15 @@ async function handle(ws) {
           send({ type: 'error', message: 'IRC-server niet bereikbaar' });
           await cleanup();
         }
+      } else if (msg.type === 'private-message' && joined) {
+        const target=typeof msg.target==='string'?msg.target.trim():'';
+        const body=typeof msg.text==='string'?msg.text.trim():'';
+        if(!nickPattern.test(target)||target.toLowerCase()===nick.toLowerCase()||!body||body.length>450||/[\r\n\0]/.test(body)) { send({type:'error',message:'Ongeldig privébericht of ontvanger'}); return; }
+        const now=Date.now();
+        if(now-lastSent<1200){send({type:'error',message:'Wacht even voor je volgende bericht'});return}
+        lastSent=now;
+        await command('PRIVMSG '+target+' :'+body);
+        send({type:'private-message',nick,target,text:body,outgoing:true});
       } else if (msg.type === 'message' && joined) {
         const text = typeof msg.text === 'string' ? msg.text.trim() : '';
         if (!text || text.length > 450 || /[\r\n\0]/.test(text)) return;
@@ -157,6 +166,7 @@ async function handle(ws) {
           if (code === 'PRIVMSG') {
             const parts = rest.split(' :');
             if (parts[0]?.toLowerCase() === CHANNEL && parts.length > 1 && key(sender) !== key(nick)) send({ type: 'message', nick: sender, text: parts.slice(1).join(' :') });
+            else if(parts[0]?.toLowerCase()===key(nick)&&parts.length>1&&key(sender)!==key(nick))send({type:'private-message',nick:sender,target:nick,text:parts.slice(1).join(' :'),outgoing:false});
           }
           if (['471','473','474','475','477','404'].includes(code)) send({ type: 'error', message: 'IRC-server weigert toegang of berichten voor dit kanaal (' + code + ')' });
         }
