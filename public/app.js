@@ -6,7 +6,7 @@ const validNick=/^[A-Za-z\[\]\\`_^{|}][A-Za-z0-9\[\]\\`_^{|}-]{0,23}$/;
 let heartbeatTimer=null,lastPong=0;let socket=null,connected=false,desiredNick='',attempt=0,retryTimer=null,session=0,manualStop=false,accountMode=false,accountPassword=null;
 function status(value){$('status').textContent=value;$('status').dataset.state=connected?'online':'offline';$('connection-info').textContent=value}
 function append(sender,body){const p=document.createElement('p'),b=document.createElement('strong');b.textContent=sender+': ';p.append(b,document.createTextNode(body));$('messages').append(p);$('messages').scrollTop=$('messages').scrollHeight}
-function enable(v){connected=v;$('message').disabled=!v;$('sendbtn').disabled=!v;$('status').dataset.state=v?'online':'offline'}
+function enable(v){connected=v;$('login-panel').hidden=v;$('message').disabled=!v;$('sendbtn').disabled=!v;$('status').dataset.state=v?'online':'offline'}
 function stopHeartbeat(){if(heartbeatTimer!==null){clearInterval(heartbeatTimer);heartbeatTimer=null}}
 function startHeartbeat(){stopHeartbeat();lastPong=Date.now();heartbeatTimer=setInterval(()=>{if(document.hidden||!socket||socket.readyState!==WebSocket.OPEN)return;if(Date.now()-lastPong>65000){status('Verbinding controleren…');socket.close();return}socket.send(JSON.stringify({type:'ping'}))},25000)}
 function clearRetry(){if(retryTimer!==null){clearTimeout(retryTimer);retryTimer=null}}
@@ -28,14 +28,14 @@ function connect(){
    if(msg.type==='ready'){attempt=0;enable(true);startHeartbeat();status(accountMode?'Verbonden als geregistreerde gebruiker':'Verbonden');if(!accountMode)try{localStorage.setItem('radiocarousel-nick',desiredNick)}catch{}}
    else if(msg.type==='account-verified')status('Account geverifieerd – kanaal openen…');
    else if(msg.type==='message'&&typeof msg.text==='string')append(String(msg.nick||'Gebruiker'),msg.text);
-   else if(msg.type==='users'&&Array.isArray(msg.users))$('users').textContent=msg.users.join(', ')||'Geen gebruikers gevonden';
+   else if(msg.type==='users'&&Array.isArray(msg.users)){$('users').textContent=msg.users.join(', ')||'Geen gebruikers gevonden';$('user-count').textContent=String(msg.users.length)}
    else if(msg.type==='error'){
     const message=String(msg.message||'Onbekende fout');append('Fout',message);status(message);
     if(accountMode||/Nickname niet beschikbaar|Ongeldige nickname/i.test(message)){manualStop=true;clearRetry()}
    }
   };
   ws.onerror=()=>{if(id===session)status('Verbindingsfout')};
-  ws.onclose=()=>{if(id!==session)return;socket=null;stopHeartbeat();enable(false);$('users').textContent='Niet verbonden';if(accountMode){manualStop=true;status('Accountverbinding verbroken – meld je opnieuw aan')}else if(!manualStop)reconnect()};
+  ws.onclose=()=>{if(id!==session)return;socket=null;stopHeartbeat();enable(false);$('users').textContent='Niet verbonden';$('user-count').textContent='';if(accountMode){manualStop=true;status('Accountverbinding verbroken – meld je opnieuw aan')}else if(!manualStop)reconnect()};
  }catch{reconnect()}
 }
 $('connect').addEventListener('click',()=>{
@@ -73,6 +73,7 @@ function setLoginMode(mode){
 $('guest-mode').addEventListener('click',()=>setLoginMode('guest'));
 $('account-mode').addEventListener('click',()=>setLoginMode('account'));
 setLoginMode('guest');
+if(window.matchMedia('(max-width: 760px)').matches)$('users-details').open=false;
 
 // Service worker enables future Web Push support; a push sender and subscriptions
 // must be configured before notifications can arrive while the app is closed.
