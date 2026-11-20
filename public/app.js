@@ -103,7 +103,7 @@ function updateDjFromTopic(){
  const sections=currentChannelTopic.split(/::|✥|❖|♦|♢/).map(part=>part.trim()).filter(Boolean);
  const section=sections.find(part=>/Huidige\s+DJ\s*:/i.test(part))||'';
  const match=section.match(/Huidige\s+DJ\s*:\s*(.+)/i);
- const dj=match?match[1].trim().slice(0,70):'';
+ const dj=match?match[1].replace(/[\u2612\u2613\u2610\u2611\u2612\u2726\u2727\u25c7\u25c6\u2756\u2740\u2736\u2737\u2738\u2739\u273a\u273b\u273c\u273d\u273e\u273f\u2741\u2742\u2743\u2744\u2745\u2746\u2747\u2748\u2749\u274a\u274b\u274c\u274d\u274e\u274f\u2750\u2751\u2752\u2753\u2754\u2755\u2757\u2758\u2759\u275a\u275b\u275c\u275d\u275e\u275f\u2760\u2761\u2762\u2763\u2764\u2765\u2766\u2767\u2768\u2769\u276a\u276b\u276c\u276d\u276e\u276f\u2770\u2771\u2772\u2773\u2774\u2775\u2776\u2777\u2778\u2779\u277a\u277b\u277c\u277d\u277e\u277f\u2780\u2781\u2782\u2783\u2784\u2785\u2786\u2787\u2788\u2789\u278a\u278b\u278c\u278d\u278e\u278f\u2790\u2791\u2792\u2793\u2794\u2795\u2796\u2797\u2798\u2799\u279a\u279b\u279c\u279d\u279e\u279f\u27a0\u27a1\u27a2\u27a3\u27a4\u27a5\u27a6\u27a7\u27a8\u27a9\u27aa\u27ab\u27ac\u27ad\u27ae\u27af\u27b0\u27b1\u27b2\u27b3\u27b4\u27b5\u27b6\u27b7\u27b8\u27b9\u27ba\u27bb\u27bc\u27bd\u27be\u2612]/g,'').trim().slice(0,70):'';
  $('radio-dj').textContent=dj?'Huidige DJ: '+dj:radioConfig.dj?'DJ (handmatig): '+radioConfig.dj:'DJ niet beschikbaar';
 }
 let radioConfig={url:'https://cast.accessweb.be:3245/stream',metadataUrl:'https://cast.accessweb.be:3245/status-json.xsl',dj:''},radioRefresh=null;
@@ -163,9 +163,10 @@ async function refreshRadioMetadata(){
   if(!response.ok)throw Error('HTTP');const data=await response.json();
   if(!data||typeof data!=='object')return;
   const source=Array.isArray(data.icestats?.source)?data.icestats.source.find(item=>String(item.listenurl||'').includes('/stream'))||data.icestats.source[0]:data.icestats?.source;const song=typeof source?.title==='string'?source.title:typeof source?.yp_currently_playing==='string'?source.yp_currently_playing:typeof data.song==='string'?data.song:typeof data.title==='string'?data.title:typeof data.now_playing?.song?.text==='string'?data.now_playing.song.text:'';
-  const listeners=Number(source?.listeners);
-  const rawBitrate=source?.bitrate;
-  const bitrate=typeof rawBitrate==='number'?rawBitrate:typeof rawBitrate==='string'&&/^\\d+(?:\\.\\d+)?$/.test(rawBitrate.trim())?Number(rawBitrate):NaN;
+  const listenerValue=source?.listeners??data.icestats?.listeners??data.listeners;
+  const listeners=listenerValue===undefined||listenerValue===null||listenerValue===''?NaN:Number(listenerValue);
+  const rawBitrate=source?.bitrate??source?.ice_bitrate??data.icestats?.bitrate;
+  const bitrate=typeof rawBitrate==='number'?rawBitrate:typeof rawBitrate==='string'&&/^\d+(?:\.\d+)?$/.test(rawBitrate.trim())?Number(rawBitrate):NaN;
   const listenerText=Number.isInteger(listeners)&&listeners>=0?'Luisteraars: '+listeners:'Luisteraars: —';
   const bitrateText=Number.isFinite(bitrate)&&bitrate>0?'Kwaliteit: '+bitrate+' kbps':'Kwaliteit: —';
   $('radio-stats').textContent=listenerText+' · '+bitrateText;
