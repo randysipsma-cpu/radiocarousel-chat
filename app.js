@@ -97,8 +97,8 @@ $('emoji-picker').addEventListener('click',event=>{const button=event.target.clo
 applyPrefs();
 
 const radioAudio=$('radio-audio'),radioPlay=$('radio-play');
-let radioConfig={url:'',metadataUrl:'',dj:''},radioRefresh=null;
-try{const saved=JSON.parse(localStorage.getItem('rc-radio-config')||'{}');if(saved&&typeof saved==='object')radioConfig={url:String(saved.url||''),metadataUrl:String(saved.metadataUrl||''),dj:String(saved.dj||'')}}catch{}
+let radioConfig={url:'https://cast.accessweb.be:3245/stream',metadataUrl:'',dj:''},radioRefresh=null;
+try{const saved=JSON.parse(localStorage.getItem('rc-radio-config')||'{}');if(saved&&typeof saved==='object')radioConfig={url:String(saved.url||'https://cast.accessweb.be:3245/stream'),metadataUrl:String(saved.metadataUrl||''),dj:String(saved.dj||'')}}catch{}
 function validHttps(value){if(!value)return true;try{const u=new URL(value);return u.protocol==='https:'&&!!u.hostname&&!u.username&&!u.password}catch{return false}}
 function setRadioState(value){$('radio-state').textContent=value}
 function applyRadio(){
