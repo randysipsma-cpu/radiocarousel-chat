@@ -1,26 +1,48 @@
 'use strict';
-// Set only after a verified secure IRC gateway is deployed. Never include passwords.
-const GATEWAY_URL = 'wss://radiocarousel-irc-gateway-test.randysipsma.workers.dev/';
-const CHANNEL = '#radiocarousel';
-const $ = id => document.getElementById(id);
-let socket = null;
-let connected = false;
-let session = 0;
-let lastError = '';
-function status(s){$('status').textContent=s}
-function append(sender,body){const p=document.createElement('p');const b=document.createElement('strong');b.textContent=sender+': ';p.append(b,document.createTextNode(body));$('messages').append(p);$('messages').scrollTop=$('messages').scrollHeight}
+const GATEWAY_URL='wss://radiocarousel-irc-gateway-test.randysipsma.workers.dev/';
+const CHANNEL='#radiocarousel';
+const $=id=>document.getElementById(id);
+const validNick=/^[A-Za-z\[\]\\`_^{|}][A-Za-z0-9\[\]\\`_^{|}-]{0,23}$/;
+let socket=null,connected=false,desiredNick='',attempt=0,retryTimer=null,session=0,manualStop=false;
+function status(value){$('status').textContent=value}
+function append(sender,body){const p=document.createElement('p'),b=document.createElement('strong');b.textContent=sender+': ';p.append(b,document.createTextNode(body));$('messages').append(p);$('messages').scrollTop=$('messages').scrollHeight}
 function enable(v){connected=v;$('message').disabled=!v;$('sendbtn').disabled=!v}
+function clearRetry(){if(retryTimer!==null){clearTimeout(retryTimer);retryTimer=null}}
+function reconnect(){if(manualStop||!desiredNick||retryTimer!==null)return;const wait=Math.min(30000,1000*Math.pow(2,Math.min(attempt++,5)));status('Verbinding verbroken – opnieuw verbinden…');retryTimer=setTimeout(()=>{retryTimer=null;connect()},wait)}
+function connect(){
+ if(!desiredNick)return;
+ clearRetry();
+ const id=++session;
+ if(socket){const old=socket;socket=null;old.onclose=null;old.onerror=null;old.onmessage=null;old.close()}
+ enable(false);
+ status(attempt?'Opnieuw verbinden…':'Verbinden…');
+ try{
+  const ws=new WebSocket(GATEWAY_URL);socket=ws;
+  ws.onopen=()=>{if(id===session)ws.send(JSON.stringify({type:'join',nick:desiredNick,channel:CHANNEL}))};
+  ws.onmessage=e=>{
+   if(id!==session)return;
+   let msg;try{msg=JSON.parse(e.data)}catch{return}
+   if(msg.type==='ready'){attempt=0;enable(true);status('Verbonden');try{localStorage.setItem('radiocarousel-nick',desiredNick)}catch{}}
+   else if(msg.type==='message'&&typeof msg.text==='string')append(String(msg.nick||'Gebruiker'),msg.text);
+   else if(msg.type==='users'&&Array.isArray(msg.users))$('users').textContent=msg.users.join(', ')||'Geen gebruikers gevonden';
+   else if(msg.type==='error'){
+    const message=String(msg.message||'Onbekende fout');append('Fout',message);status(message);
+    if(/Nickname niet beschikbaar|Ongeldige nickname/i.test(message)){manualStop=true;clearRetry()}
+   }
+  };
+  ws.onerror=()=>{if(id===session)status('Verbindingsfout')};
+  ws.onclose=()=>{if(id!==session)return;socket=null;enable(false);$('users').textContent='Niet verbonden';if(!manualStop)reconnect()};
+ }catch{reconnect()}
+}
 $('connect').addEventListener('click',()=>{
  const nick=$('nick').value.trim();
- if(!/^[A-Za-z\[\]\\`_^{|}][A-Za-z0-9\[\]\\`_^{|}-]{0,23}$/.test(nick)){status('Kies een geldige IRC-nickname');return}
- if(!GATEWAY_URL){status('Gateway nog niet ingesteld');append('Systeem','De IRC-gateway moet eerst worden geconfigureerd en getest.');return}
- if(socket){socket.close();socket=null}
- enable(false);
- const thisSession = ++session;
- lastError = '';
- $('users').textContent = 'Gebruikers worden opgehaald…';
- status('Verbinden…');
- try {socket=new WebSocket(GATEWAY_URL);socket.onopen=()=>socket.send(JSON.stringify({type:'join',nick,channel:CHANNEL}));socket.onmessage=e=>{if(thisSession!==session)return;let msg;try{msg=JSON.parse(e.data)}catch{return}if(msg.type==='ready'){enable(true);status('Verbonden')}else if(msg.type==='message'&&typeof msg.text==='string'){append(String(msg.nick||'Gebruiker'),msg.text)}else if(msg.type==='users'&&Array.isArray(msg.users)){$('users').textContent=msg.users.join(', ')}else if(msg.type==='error'){lastError=String(msg.message||'Onbekende fout');status(lastError);append('Fout',lastError)}};socket.onclose=()=>{if(thisSession!==session)return;enable(false);status(lastError||'Verbinding verbroken');$('users').textContent='Niet verbonden'};socket.onerror=()=>{if(thisSession===session)status('Verbindingsfout')}}
- catch{status('Ongeldige gatewayconfiguratie')}
+ if(!validNick.test(nick)){status('Kies een geldige IRC-nickname');return}
+ manualStop=false;desiredNick=nick;attempt=0;connect();
 });
-$('send').addEventListener('submit',e=>{e.preventDefault();const text=$('message').value.trim();if(!connected||!text||!socket||socket.readyState!==WebSocket.OPEN)return;socket.send(JSON.stringify({type:'message',channel:CHANNEL,text}));$('message').value=''});
+$('send').addEventListener('submit',e=>{
+ e.preventDefault();const text=$('message').value.trim();
+ if(!connected||!text||!socket||socket.readyState!==WebSocket.OPEN)return;
+ socket.send(JSON.stringify({type:'message',channel:CHANNEL,text}));$('message').value='';
+});
+try{const saved=localStorage.getItem('radiocarousel-nick');if(saved&&validNick.test(saved))$('nick').value=saved}catch{}
+window.addEventListener('online',()=>{if(!connected&&desiredNick){clearRetry();connect()}});
