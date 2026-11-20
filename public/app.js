@@ -4,11 +4,11 @@ const CHANNEL='#radiocarousel';
 const $=id=>document.getElementById(id);
 const validNick=/^[A-Za-z\[\]\\`_^{|}][A-Za-z0-9\[\]\\`_^{|}-]{0,23}$/;
 let socket=null,connected=false,desiredNick='',attempt=0,retryTimer=null,session=0,manualStop=false,accountMode=false,accountPassword=null;
-function status(value){$('status').textContent=value}
+function status(value){$('status').textContent=value;$('status').dataset.state=connected?'online':'offline';$('connection-info').textContent=value}
 function append(sender,body){const p=document.createElement('p'),b=document.createElement('strong');b.textContent=sender+': ';p.append(b,document.createTextNode(body));$('messages').append(p);$('messages').scrollTop=$('messages').scrollHeight}
-function enable(v){connected=v;$('message').disabled=!v;$('sendbtn').disabled=!v}
+function enable(v){connected=v;$('message').disabled=!v;$('sendbtn').disabled=!v;$('status').dataset.state=v?'online':'offline'}
 function clearRetry(){if(retryTimer!==null){clearTimeout(retryTimer);retryTimer=null}}
-function reconnect(){if(manualStop||accountMode||!desiredNick||retryTimer!==null)return;const wait=Math.min(30000,1000*Math.pow(2,Math.min(attempt++,5)));status('Verbinding verbroken – opnieuw verbinden…');retryTimer=setTimeout(()=>{retryTimer=null;connect()},wait)}
+function reconnect(){if(manualStop||accountMode||!desiredNick||retryTimer!==null||!navigator.onLine)return;const wait=Math.min(30000,1000*Math.pow(2,Math.min(attempt++,5)));status('Verbinding verbroken – opnieuw verbinden…');retryTimer=setTimeout(()=>{retryTimer=null;connect()},wait)}
 function connect(){
  if(!desiredNick)return;
  clearRetry();
@@ -18,7 +18,7 @@ function connect(){
  status(attempt?'Opnieuw verbinden…':'Verbinden…');
  try{
   const ws=new WebSocket(GATEWAY_URL);socket=ws;
-  ws.onopen=()=>{if(id===session)ws.send(JSON.stringify(accountMode?{type:'account-login',nick:desiredNick,password:accountPassword,channel:CHANNEL}:{type:'join',nick:desiredNick,channel:CHANNEL}));if(accountMode){accountPassword=null;$('account-password').value=''}};
+  ws.onopen=()=>{if(id!==session)return;if(accountMode&&!accountPassword){status('Account opnieuw aanmelden vereist');manualStop=true;ws.close();return}ws.send(JSON.stringify(accountMode?{type:'account-login',nick:desiredNick,password:accountPassword,channel:CHANNEL}:{type:'join',nick:desiredNick,channel:CHANNEL}));if(accountMode){accountPassword=null;$('account-password').value=''}};
   ws.onmessage=e=>{
    if(id!==session)return;
    let msg;try{msg=JSON.parse(e.data)}catch{return}
@@ -32,7 +32,7 @@ function connect(){
    }
   };
   ws.onerror=()=>{if(id===session)status('Verbindingsfout')};
-  ws.onclose=()=>{if(id!==session)return;socket=null;enable(false);$('users').textContent='Niet verbonden';if(!manualStop)reconnect()};
+  ws.onclose=()=>{if(id!==session)return;socket=null;enable(false);$('users').textContent='Niet verbonden';if(accountMode){manualStop=true;status('Accountverbinding verbroken – meld je opnieuw aan')}else if(!manualStop)reconnect()};
  }catch{reconnect()}
 }
 $('connect').addEventListener('click',()=>{
@@ -46,7 +46,11 @@ $('send').addEventListener('submit',e=>{
  socket.send(JSON.stringify({type:'message',channel:CHANNEL,text}));$('message').value='';
 });
 try{const saved=localStorage.getItem('radiocarousel-nick');if(saved&&validNick.test(saved))$('nick').value=saved}catch{}
-window.addEventListener('online',()=>{if(!connected&&desiredNick){clearRetry();connect()}});
+window.addEventListener('online',()=>{if(!connected&&desiredNick&&!accountMode&&!manualStop){clearRetry();connect()}});
+window.addEventListener('offline',()=>{enable(false);status('Geen internetverbinding')});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!connected&&desiredNick&&!accountMode&&!manualStop&&navigator.onLine){clearRetry();connect()}});
+window.addEventListener('pageshow',()=>{if(!connected&&desiredNick&&!accountMode&&!manualStop&&navigator.onLine){clearRetry();connect()}});
+$('reconnect-now').addEventListener('click',()=>{if(accountMode){status('Vul je wachtwoord opnieuw in en kies Inloggen met account');setLoginMode('account');return}if(!desiredNick){status('Kies eerst een nickname');return}manualStop=false;attempt=0;connect()});
 
 $('account-connect').addEventListener('click',()=>{
  const nick=$('account-nick').value.trim(),password=$('account-password').value;
@@ -61,7 +65,7 @@ function setLoginMode(mode){
  $('account-notice').hidden=!account;
  $('guest-mode').setAttribute('aria-pressed',String(!account));
  $('account-mode').setAttribute('aria-pressed',String(account));
- $('status').textContent=account?'Accountlogin geselecteerd':'Gastlogin geselecteerd';
+ status(account?'Accountlogin geselecteerd':'Gastlogin geselecteerd');
 }
 $('guest-mode').addEventListener('click',()=>setLoginMode('guest'));
 $('account-mode').addEventListener('click',()=>setLoginMode('account'));
