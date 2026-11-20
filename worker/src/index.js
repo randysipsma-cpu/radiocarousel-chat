@@ -12,6 +12,7 @@ export default {
     const allowed = (env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim()).filter(Boolean);
     if (!allowed.length || !allowed.includes(origin)) return new Response('Origin not allowed', { status: 403 });
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('WebSocket required', { status: 426 });
+    if (new URL(request.url).pathname === '/observe') return env.OBSERVER_HUB.get(env.OBSERVER_HUB.idFromName('public')).fetch(request);
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     server.accept();
@@ -174,4 +175,31 @@ async function handle(ws) {
     } catch { send({ type: 'error', message: 'IRC-verbinding verbroken' }); }
     await cleanup();
   }
+}
+
+export class ObserverHub {
+ constructor(state,env){this.env=env;this.clients=new Set();this.upstream=null;this.connecting=false;this.timer=null;this.users=null;}
+ async fetch(req){
+  if(req.headers.get('Upgrade')?.toLowerCase()!=='websocket')return new Response('WebSocket required',{status:426});
+  const [client,server]=Object.values(new WebSocketPair());server.accept();this.clients.add(server);
+  if(this.users)server.send(JSON.stringify(this.users));
+  server.addEventListener('message',e=>{try{if(JSON.parse(e.data).type==='ping')server.send(JSON.stringify({type:'pong'}))}catch{}});
+  const remove=()=>{this.clients.delete(server);if(!this.clients.size){clearTimeout(this.timer);this.upstream?.close();this.upstream=null}};
+  server.addEventListener('close',remove);server.addEventListener('error',remove);
+  this.start();return new Response(null,{status:101,webSocket:client});
+ }
+ broadcast(m){const data=JSON.stringify(m);for(const c of this.clients)try{c.send(data)}catch{this.clients.delete(c)}}
+ async start(){
+  if(this.connecting||this.upstream||!this.clients.size)return;this.connecting=true;
+  try{
+   const res=await fetch('https://radiocarousel-irc-gateway-test.randysipsma.workers.dev/',{headers:{Upgrade:'websocket',Origin:'https://radiocarousel-chat-test.pages.dev'}});
+   if(!res.webSocket)throw Error('Gateway unavailable');
+   const ws=res.webSocket;ws.accept();this.upstream=ws;this.connecting=false;
+   ws.send(JSON.stringify({type:'join',nick:'RCMonitor',channel:'#radiocarousel'}));
+   ws.addEventListener('message',e=>{let m;try{m=JSON.parse(e.data)}catch{return}if(m.type==='users')this.users=m;if(['ready','users','message','topic','error'].includes(m.type))this.broadcast(m)});
+   const close=()=>{if(this.upstream!==ws)return;this.upstream=null;this.broadcast({type:'disconnected'});if(this.clients.size)this.timer=setTimeout(()=>this.start(),3000)};
+   ws.addEventListener('close',close);ws.addEventListener('error',close);
+   if(!this.clients.size)ws.close();
+  }catch{this.connecting=false;if(this.clients.size)this.timer=setTimeout(()=>this.start(),5000)}
+ }
 }
