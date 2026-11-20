@@ -23,6 +23,11 @@ export default {
 async function handle(ws) {
   let tcp, writer, reader, closed = false, registered = false, joined = false, nick = '', lastSent = 0;
   let buffer = '';
+  let accountPending = false;
+  let accountVerified = false;
+  let accountTimeout;
+  const clearAccountTimeout = () => { if (accountTimeout) { clearTimeout(accountTimeout); accountTimeout = null; } };
+  const joinChannel = async () => { if (!joined) await command('JOIN ' + CHANNEL); };
   const users = new Map();
   const key = name => name.toLowerCase();
   const publishUsers = () => send({ type: 'users', users: [...users.values()].sort((a,b)=>a.localeCompare(b)).slice(0,300) });
@@ -36,6 +41,7 @@ async function handle(ws) {
   const cleanup = async () => {
     if (closed) return;
     closed = true;
+    clearAccountTimeout();
     try { await writer?.close(); } catch {}
     try { await reader?.cancel(); } catch {}
     try { tcp?.close(); } catch {}
@@ -48,17 +54,24 @@ async function handle(ws) {
       if (typeof event.data !== 'string' || event.data.length > 2048) return;
       let msg;
       try { msg = JSON.parse(event.data); } catch { return; }
-      if (!registered && msg.type === 'join') {
+      if (!registered && (msg.type === 'join' || msg.type === 'account-login')) {
         if (msg.channel !== CHANNEL || typeof msg.nick !== 'string' || !nickPattern.test(msg.nick)) {
           send({ type: 'error', message: 'Ongeldige nickname of kanaal' }); return;
         }
-        registered = true; nick = msg.nick;
+        const accountMode = msg.type === 'account-login';
+        const password = accountMode ? msg.password : null;
+        if (accountMode && (typeof password !== 'string' || password.length < 1 || password.length > 256 || /[\r\n\0]/.test(password))) { send({ type: 'error', message: 'Ongeldige accountgegevens' }); return; }
+        registered = true; nick = msg.nick; accountPending = accountMode;
         try {
           tcp = connect({ hostname: HOST, port: PORT }, { secureTransport: 'on', allowHalfOpen: false });
           writer = tcp.writable.getWriter();
           reader = tcp.readable.getReader();
           await command('NICK ' + nick);
           await command('USER ' + nick + ' 0 * :RadioCarousel listener');
+          if (accountMode) {
+            await command('PRIVMSG NickServ :IDENTIFY ' + nick + ' ' + password);
+            accountTimeout = setTimeout(() => { if (accountPending && !accountVerified) { send({ type: 'error', message: 'Accountcontrole verlopen; probeer opnieuw' }); void cleanup(); } }, 15000);
+          }
           void readIrc();
         } catch {
           send({ type: 'error', message: 'IRC-server niet bereikbaar' });
@@ -92,7 +105,13 @@ async function handle(ws) {
           if (!match) continue;
           const [, prefix = '', code, rest = ''] = match;
           const sender = prefix.split('!')[0];
-          if (code === '001') await command('JOIN ' + CHANNEL);
+          if (code === '001' && !accountPending) await joinChannel();
+          if (accountPending && (code === '900' || (code === 'NOTICE' && sender.toLowerCase() === 'nickserv' && /identified|recognized|geïdentificeerd|herkend|successfully|logged in/i.test(rest)))) {
+            accountPending = false; accountVerified = true; clearAccountTimeout(); send({ type: 'account-verified' }); await joinChannel();
+          }
+          if (accountPending && code === 'NOTICE' && sender.toLowerCase() === 'nickserv' && /invalid password|incorrect password|password incorrect|authentication failed|ongeldig wachtwoord|verkeerd wachtwoord/i.test(rest)) {
+            accountPending = false; clearAccountTimeout(); send({ type: 'error', message: 'Accountlogin geweigerd door NickServ' }); await cleanup(); return;
+          }
           if (code === '433' || code === '432') { send({ type: 'error', message: 'Nickname niet beschikbaar' }); await cleanup(); return; }
           if (code === 'JOIN' && sender.toLowerCase() === nick.toLowerCase()) {
             joined = true; send({ type: 'ready' }); await command('NAMES ' + CHANNEL);
