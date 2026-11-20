@@ -95,6 +95,54 @@ for(const [id,key] of [['pref-compact','compact'],['pref-time','timestamps'],['p
 $('emoji-toggle').addEventListener('click',()=>{$('emoji-picker').hidden=!$('emoji-picker').hidden});
 $('emoji-picker').addEventListener('click',event=>{const button=event.target.closest('button[data-emoji]');if(!button)return;const input=$('message');input.value+=button.dataset.emoji;input.focus();$('emoji-picker').hidden=true});
 applyPrefs();
+
+const radioAudio=$('radio-audio'),radioPlay=$('radio-play');
+let radioConfig={url:'',metadataUrl:'',dj:''},radioRefresh=null;
+try{const saved=JSON.parse(localStorage.getItem('rc-radio-config')||'{}');if(saved&&typeof saved==='object')radioConfig={url:String(saved.url||''),metadataUrl:String(saved.metadataUrl||''),dj:String(saved.dj||'')}}catch{}
+function validHttps(value){if(!value)return true;try{const u=new URL(value);return u.protocol==='https:'&&!!u.hostname&&!u.username&&!u.password}catch{return false}}
+function setRadioState(value){$('radio-state').textContent=value}
+function applyRadio(){
+ $('radio-url').value=radioConfig.url;$('radio-metadata-url').value=radioConfig.metadataUrl;$('radio-dj-input').value=radioConfig.dj;
+ $('radio-dj').textContent=radioConfig.dj?'DJ (handmatig): '+radioConfig.dj:'DJ niet ingesteld';
+ radioPlay.disabled=!radioConfig.url;
+ if(!radioConfig.url)setRadioState('Stel de stream in via ⚙️');
+ else if(radioAudio.paused)setRadioState('Klaar om te luisteren');
+}
+$('radio-save').addEventListener('click',()=>{
+ const url=$('radio-url').value.trim(),metadataUrl=$('radio-metadata-url').value.trim(),dj=$('radio-dj-input').value.trim();
+ if(!validHttps(url)||!validHttps(metadataUrl)){setRadioState('Gebruik een geldige HTTPS-link');return}
+ const changed=url!==radioConfig.url;
+ radioConfig={url,metadataUrl,dj};try{localStorage.setItem('rc-radio-config',JSON.stringify(radioConfig))}catch{}
+ if(changed){radioAudio.pause();radioAudio.removeAttribute('src');radioAudio.load();radioPlay.textContent='▶';$('radio-track').textContent='Nog geen nummerinformatie';$('radio-art').style.backgroundImage=''}
+ applyRadio();settings.close();void refreshRadioMetadata()
+});
+radioPlay.addEventListener('click',async()=>{
+ if(!radioConfig.url)return;
+ if(!radioAudio.paused){radioAudio.pause();return}
+ if(radioAudio.getAttribute('src')!==radioConfig.url)radioAudio.src=radioConfig.url;
+ setRadioState('Verbinden met radiostream…');
+ try{await radioAudio.play()}catch{setRadioState('Afspelen mislukt — controleer de stream-URL')}
+});
+radioAudio.addEventListener('playing',()=>{radioPlay.textContent='❚❚';radioPlay.setAttribute('aria-label','Radio pauzeren');setRadioState('Radio speelt af')});
+radioAudio.addEventListener('pause',()=>{radioPlay.textContent='▶';radioPlay.setAttribute('aria-label','Radio afspelen');if(radioConfig.url)setRadioState('Gepauzeerd')});
+radioAudio.addEventListener('waiting',()=>setRadioState('Stream bufferen…'));
+radioAudio.addEventListener('error',()=>setRadioState('Stream niet bereikbaar of niet ondersteund'));
+async function refreshRadioMetadata(){
+ if(!radioConfig.metadataUrl||document.hidden)return;
+ try{
+  const response=await fetch(radioConfig.metadataUrl,{cache:'no-store',signal:AbortSignal.timeout(8000)});
+  if(!response.ok)throw Error('HTTP');const data=await response.json();
+  if(!data||typeof data!=='object')return;
+  const song=typeof data.song==='string'?data.song:typeof data.title==='string'?data.title:typeof data.now_playing?.song?.text==='string'?data.now_playing.song.text:'';
+  if(song)$('radio-track').textContent=song.slice(0,180);
+  const cover=typeof data.art==='string'?data.art:typeof data.cover==='string'?data.cover:typeof data.now_playing?.song?.art==='string'?data.now_playing.song.art:'';
+  if(cover&&validHttps(cover))$('radio-art').style.backgroundImage='url('+JSON.stringify(cover)+')';
+ }catch{/* Unsupported metadata endpoints do not interrupt radio or chat */}
+}
+applyRadio();void refreshRadioMetadata();
+radioRefresh=setInterval(()=>{if(!document.hidden)void refreshRadioMetadata()},30000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)void refreshRadioMetadata()});
+
 // Service worker enables future Web Push support; a push sender and subscriptions
 // must be configured before notifications can arrive while the app is closed.
 if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('./sw.js').catch(()=>{})})}
