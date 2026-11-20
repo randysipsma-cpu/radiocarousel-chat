@@ -23,6 +23,10 @@ export default {
 async function handle(ws) {
   let tcp, writer, reader, closed = false, registered = false, joined = false, nick = '', lastSent = 0;
   let buffer = '';
+  const users = new Map();
+  const key = name => name.toLowerCase();
+  const publishUsers = () => send({ type: 'users', users: [...users.values()].sort((a,b)=>a.localeCompare(b)).slice(0,300) });
+  let collectingNames = false;
   const send = obj => { try { ws.send(JSON.stringify(obj)); } catch {} };
   const command = async line => {
     if (!writer || closed) return;
@@ -99,7 +103,7 @@ async function handle(ws) {
           }
           if (code === 'PRIVMSG') {
             const parts = rest.split(' :');
-            if (parts[0]?.toLowerCase() === CHANNEL && parts.length > 1) send({ type: 'message', nick: sender, text: parts.slice(1).join(' :') });
+            if (parts[0]?.toLowerCase() === CHANNEL && parts.length > 1 && key(sender) !== key(nick)) send({ type: 'message', nick: sender, text: parts.slice(1).join(' :') });
           }
           if (['471','473','474','475','477','404'].includes(code)) send({ type: 'error', message: 'IRC-server weigert toegang of berichten voor dit kanaal (' + code + ')' });
         }
