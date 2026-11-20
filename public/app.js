@@ -134,20 +134,11 @@ try{const saved=JSON.parse(localStorage.getItem('rc-radio-config')||'{}');if(sav
 function validHttps(value){if(!value)return true;try{const u=new URL(value);return u.protocol==='https:'&&!!u.hostname&&!u.username&&!u.password}catch{return false}}
 function setRadioState(value){$('radio-state').textContent=value}
 function applyRadio(){
- $('radio-url').value=radioConfig.url;$('radio-metadata-url').value=radioConfig.metadataUrl;$('radio-dj-input').value=radioConfig.dj;
  updateDjFromTopic();
  radioPlay.disabled=!radioConfig.url;
- if(!radioConfig.url)setRadioState('Stel de stream in via ⚙️');
+ if(!radioConfig.url)setRadioState('Geen radiostream ingesteld');
  else if(radioAudio.paused)setRadioState('Klaar om te luisteren');
 }
-$('radio-save').addEventListener('click',()=>{
- const url=$('radio-url').value.trim(),metadataUrl=$('radio-metadata-url').value.trim(),dj=$('radio-dj-input').value.trim();
- if(!validHttps(url)||!validHttps(metadataUrl)){setRadioState('Gebruik een geldige HTTPS-link');return}
- const changed=url!==radioConfig.url;
- radioConfig={url,metadataUrl,dj};try{localStorage.setItem('rc-radio-config',JSON.stringify(radioConfig))}catch{}
- if(changed){radioAudio.pause();radioAudio.removeAttribute('src');radioAudio.load();radioPlay.textContent='▶';$('radio-track').textContent='Nog geen nummerinformatie';lastCoverSong='';coverRequestId++;clearCover()}
- applyRadio();settings.close();void refreshRadioMetadata()
-});
 radioPlay.addEventListener('click',async()=>{
  if(!radioConfig.url)return;
  if(!radioAudio.paused){radioAudio.pause();return}
