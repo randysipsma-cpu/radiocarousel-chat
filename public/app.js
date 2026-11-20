@@ -99,7 +99,13 @@ applyPrefs();
 
 const radioAudio=$('radio-audio'),radioPlay=$('radio-play');
 let currentChannelTopic='';
-function updateDjFromTopic(){const match=currentChannelTopic.match(/Huidige\s+DJ\s*:\s*([^✥❖♦♢|\n\r]+)/i);const dj=match?match[1].replace(/\s*(?:»|«|➜|→).*$/,'').trim().slice(0,70):'';$('radio-dj').textContent=dj?'Huidige DJ: '+dj:radioConfig.dj?'DJ (handmatig): '+radioConfig.dj:'DJ niet beschikbaar'}
+function updateDjFromTopic(){
+ const sections=currentChannelTopic.split(/::|✥|❖|♦|♢/).map(part=>part.trim()).filter(Boolean);
+ const section=sections.find(part=>/Huidige\s+DJ\s*:/i.test(part))||'';
+ const match=section.match(/Huidige\s+DJ\s*:\s*(.+)/i);
+ const dj=match?match[1].trim().slice(0,70):'';
+ $('radio-dj').textContent=dj?'Huidige DJ: '+dj:radioConfig.dj?'DJ (handmatig): '+radioConfig.dj:'DJ niet beschikbaar';
+}
 let radioConfig={url:'https://cast.accessweb.be:3245/stream',metadataUrl:'https://cast.accessweb.be:3245/status-json.xsl',dj:''},radioRefresh=null;
 try{const saved=JSON.parse(localStorage.getItem('rc-radio-config')||'{}');if(saved&&typeof saved==='object')radioConfig={url:String(saved.url||'https://cast.accessweb.be:3245/stream'),metadataUrl:String(saved.metadataUrl||'https://cast.accessweb.be:3245/status-json.xsl'),dj:String(saved.dj||'')}}catch{}
 function validHttps(value){if(!value)return true;try{const u=new URL(value);return u.protocol==='https:'&&!!u.hostname&&!u.username&&!u.password}catch{return false}}
