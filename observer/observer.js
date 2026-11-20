@@ -1,5 +1,5 @@
 'use strict';
-const $=id=>document.getElementById(id),gateway='wss://radiocarousel-irc-gateway-test.randysipsma.workers.dev/',validNick=/^[A-Za-z\\[\\]\\\\`_^{|}][A-Za-z0-9\\[\\]\\\\`_^{|}-]{0,23}$/;
+const $=id=>document.getElementById(id),gateway='wss://radiocarousel-irc-gateway-test.randysipsma.workers.dev/',validNick=/^[A-Za-z][A-Za-z0-9_-]{0,23}$/;
 let ws=null,nick='',retries=0,retryTimer=null,heartbeat=null,manual=false;
 function status(value){$('status').textContent=value}
 function stop(){if(heartbeat)clearInterval(heartbeat);heartbeat=null;if(retryTimer)clearTimeout(retryTimer);retryTimer=null}
