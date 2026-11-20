@@ -11,8 +11,13 @@ export default {
     const origin = request.headers.get('Origin') || '';
     const allowed = (env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim()).filter(Boolean);
     if (!allowed.length || !allowed.includes(origin)) return new Response('Origin not allowed', { status: 403 });
+    const pathname = new URL(request.url).pathname;
+    if (pathname === '/observe' || pathname === '/observe/publish') {
+      if (!env.OBSERVER_SECRET || env.OBSERVER_SECRET.length < 32) return new Response('Observer relay not configured', {status:503});
+      const id=env.OBSERVER_HUB.idFromName('public');
+      return env.OBSERVER_HUB.get(id).fetch(request);
+    }
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('WebSocket required', { status: 426 });
-    if (new URL(request.url).pathname === '/observe') return new Response('Observer tijdelijk uitgeschakeld: zichtbare IRC-deelnemer', {status:503});
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     server.accept();
@@ -177,29 +182,38 @@ async function handle(ws) {
   }
 }
 
+// A feed-only relay. Never connects to IRC and never creates a visible nickname.
+// Disabled until OBSERVER_SECRET is set as a Cloudflare secret (>=32 characters).
 export class ObserverHub {
- constructor(state,env){this.env=env;this.clients=new Set();this.upstream=null;this.connecting=false;this.timer=null;this.users=null;}
+ constructor(state,env){this.env=env;this.clients=new Set();this.lastUsers=null;}
  async fetch(req){
+  const url=new URL(req.url);
+  if(url.pathname==='/observe/publish'){
+   if(req.method!=='POST')return new Response('Method not allowed',{status:405});
+   if(req.headers.get('Authorization')!=='Bearer '+this.env.OBSERVER_SECRET)return new Response('Unauthorized',{status:401});
+   if(Number(req.headers.get('Content-Length')||0)>2048)return new Response('Too large',{status:413});
+   let m;try{const body=await req.text();if(body.length>2048)return new Response('Too large',{status:413});m=JSON.parse(body)}catch{return new Response('Invalid JSON',{status:400})}
+   if(m.type==='message'&&typeof m.nick==='string'&&typeof m.text==='string'&&m.nick.length<=32&&m.text.length<=450){this.broadcast({type:'message',nick:m.nick,text:m.text});return new Response('OK')}
+   if(m.type==='users'&&Array.isArray(m.users)&&m.users.length<=300&&m.users.every(x=>typeof x==='string'&&x.length<=32)){this.lastUsers={type:'users',users:m.users};this.broadcast(this.lastUsers);return new Response('OK')}
+   return new Response('Invalid event',{status:400});
+  }
   if(req.headers.get('Upgrade')?.toLowerCase()!=='websocket')return new Response('WebSocket required',{status:426});
-  const [client,server]=Object.values(new WebSocketPair());server.accept();this.clients.add(server);
-  if(this.users)server.send(JSON.stringify(this.users));
-  server.addEventListener('message',e=>{try{if(JSON.parse(e.data).type==='ping')server.send(JSON.stringify({type:'pong'}))}catch{}});
-  const remove=()=>{this.clients.delete(server);if(!this.clients.size){clearTimeout(this.timer);this.upstream?.close();this.upstream=null}};
-  server.addEventListener('close',remove);server.addEventListener('error',remove);
-  this.start();return new Response(null,{status:101,webSocket:client});
+  const [client,server]=Object.values(new WebSocketPair());server.accept();
+  let authenticated=false;
+  const timeout=setTimeout(()=>{if(!authenticated)try{server.close(1008,'Authentication required')}catch{}},10000);
+  server.addEventListener('message',event=>{
+   if(typeof event.data!=='string'||event.data.length>2048){server.close(1008,'Invalid request');return}
+   let m;try{m=JSON.parse(event.data)}catch{return}
+   if(!authenticated){
+    if(m.type!=='auth'||m.token!==this.env.OBSERVER_SECRET){server.close(1008,'Unauthorized');return}
+    authenticated=true;clearTimeout(timeout);this.clients.add(server);
+    server.send(JSON.stringify({type:'ready'}));
+    if(this.lastUsers)server.send(JSON.stringify(this.lastUsers));
+   }else if(m.type==='ping')server.send(JSON.stringify({type:'pong'}));
+  });
+  const cleanup=()=>{clearTimeout(timeout);this.clients.delete(server)};
+  server.addEventListener('close',cleanup);server.addEventListener('error',cleanup);
+  return new Response(null,{status:101,webSocket:client});
  }
- broadcast(m){const data=JSON.stringify(m);for(const c of this.clients)try{c.send(data)}catch{this.clients.delete(c)}}
- async start(){
-  if(this.connecting||this.upstream||!this.clients.size)return;this.connecting=true;
-  try{
-   const res=await fetch('https://radiocarousel-irc-gateway-test.randysipsma.workers.dev/',{headers:{Upgrade:'websocket',Origin:'https://radiocarousel-chat-test.pages.dev'}});
-   if(!res.webSocket)throw Error('Gateway unavailable');
-   const ws=res.webSocket;ws.accept();this.upstream=ws;this.connecting=false;
-   ws.send(JSON.stringify({type:'join',nick:'RCMonitor',channel:'#radiocarousel'}));
-   ws.addEventListener('message',e=>{let m;try{m=JSON.parse(e.data)}catch{return}if(m.type==='users')this.users=m;if(['ready','users','message','topic','error'].includes(m.type))this.broadcast(m)});
-   const close=()=>{if(this.upstream!==ws)return;this.upstream=null;this.broadcast({type:'disconnected'});if(this.clients.size)this.timer=setTimeout(()=>this.start(),3000)};
-   ws.addEventListener('close',close);ws.addEventListener('error',close);
-   if(!this.clients.size)ws.close();
-  }catch{this.connecting=false;if(this.clients.size)this.timer=setTimeout(()=>this.start(),5000)}
- }
+ broadcast(m){const data=JSON.stringify(m);for(const ws of this.clients)try{ws.send(data)}catch{this.clients.delete(ws)}}
 }
