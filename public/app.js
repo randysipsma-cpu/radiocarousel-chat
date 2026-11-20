@@ -40,6 +40,7 @@ function connect(){
    if(msg.type==='ready'){attempt=0;enable(true);startHeartbeat();status(accountMode?'Verbonden als geregistreerde gebruiker':'Verbonden');if(!accountMode)try{localStorage.setItem('radiocarousel-nick',desiredNick)}catch{}}
    else if(msg.type==='account-verified')status('Account geverifieerd – kanaal openen…');
    else if(msg.type==='message'&&typeof msg.text==='string')append(String(msg.nick||'Gebruiker'),msg.text);
+   else if(msg.type==='topic'&&typeof msg.topic==='string'){currentChannelTopic=msg.topic;updateDjFromTopic()}
    else if(msg.type==='users'&&Array.isArray(msg.users)){$('users').textContent=msg.users.join(', ')||'Geen gebruikers gevonden';$('user-count').textContent=String(msg.users.length)}
    else if(msg.type==='error'){
     const message=String(msg.message||'Onbekende fout');append('Fout',message);status(message);
@@ -97,13 +98,15 @@ $('emoji-picker').addEventListener('click',event=>{const button=event.target.clo
 applyPrefs();
 
 const radioAudio=$('radio-audio'),radioPlay=$('radio-play');
+let currentChannelTopic='';
+function updateDjFromTopic(){const match=currentChannelTopic.match(/Huidige\s+DJ\s*:\s*([^✥❖♦♢|\n\r]+)/i);const dj=match?match[1].replace(/\s*(?:»|«|➜|→).*$/,'').trim().slice(0,70):'';$('radio-dj').textContent=dj?'Huidige DJ: '+dj:radioConfig.dj?'DJ (handmatig): '+radioConfig.dj:'DJ niet beschikbaar'}
 let radioConfig={url:'https://cast.accessweb.be:3245/stream',metadataUrl:'https://cast.accessweb.be:3245/status-json.xsl',dj:''},radioRefresh=null;
 try{const saved=JSON.parse(localStorage.getItem('rc-radio-config')||'{}');if(saved&&typeof saved==='object')radioConfig={url:String(saved.url||'https://cast.accessweb.be:3245/stream'),metadataUrl:String(saved.metadataUrl||'https://cast.accessweb.be:3245/status-json.xsl'),dj:String(saved.dj||'')}}catch{}
 function validHttps(value){if(!value)return true;try{const u=new URL(value);return u.protocol==='https:'&&!!u.hostname&&!u.username&&!u.password}catch{return false}}
 function setRadioState(value){$('radio-state').textContent=value}
 function applyRadio(){
  $('radio-url').value=radioConfig.url;$('radio-metadata-url').value=radioConfig.metadataUrl;$('radio-dj-input').value=radioConfig.dj;
- $('radio-dj').textContent=radioConfig.dj?'DJ (handmatig): '+radioConfig.dj:'DJ niet ingesteld';
+ updateDjFromTopic();
  radioPlay.disabled=!radioConfig.url;
  if(!radioConfig.url)setRadioState('Stel de stream in via ⚙️');
  else if(radioAudio.paused)setRadioState('Klaar om te luisteren');
