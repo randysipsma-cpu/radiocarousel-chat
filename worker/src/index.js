@@ -98,8 +98,27 @@ async function handle(ws) {
             joined = true; send({ type: 'ready' }); await command('NAMES ' + CHANNEL);
           }
           if (code === '353') {
+            if (!collectingNames) { users.clear(); collectingNames = true; }
             const names = rest.split(' :')[1];
-            if (names) send({ type: 'users', users: names.split(/\s+/).map(x => x.replace(/^[@+%&~]/, '')).filter(Boolean).slice(0, 300) });
+            if (names) for (const raw of names.split(/\s+/)) {
+              const name = raw.replace(/^[@+%&~]+/, '');
+              if (name) users.set(key(name), name);
+            }
+          }
+          if (code === '366') { collectingNames = false; publishUsers(); }
+          if (code === 'JOIN' && sender && joined && key(sender) !== key(nick)) { users.set(key(sender), sender); publishUsers(); }
+          if ((code === 'PART' || code === 'QUIT') && sender) { users.delete(key(sender)); publishUsers(); }
+          if (code === 'KICK') {
+            const kicked = rest.split(' ')[1];
+            if (kicked) { users.delete(key(kicked)); publishUsers(); }
+          }
+          if (code === 'NICK' && sender) {
+            const newNick = rest.replace(/^:/, '').split(' ')[0];
+            if (newNick) {
+              users.delete(key(sender)); users.set(key(newNick), newNick);
+              if (key(sender) === key(nick)) nick = newNick;
+              publishUsers();
+            }
           }
           if (code === 'PRIVMSG') {
             const parts = rest.split(' :');
