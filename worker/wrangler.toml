@@ -8,3 +8,10 @@ compatibility_date = "2026-11-01"
 # Keep the allowed browser origin under version control across deployments.
 [vars]
 ALLOWED_ORIGINS = "https://radiocarousel-chat-test.pages.dev"
+
+[durable_objects]
+bindings = [{ name = "OBSERVER_HUB", class_name = "ObserverHub" }]
+
+[[migrations]]
+tag = "observer-hub-v1"
+new_sqlite_classes = ["ObserverHub"]
