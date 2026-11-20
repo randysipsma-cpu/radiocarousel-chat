@@ -54,3 +54,15 @@ $('account-connect').addEventListener('click',()=>{
  if(!password||password.length>256||/[\r\n\0]/.test(password)){status('Voer een geldig wachtwoord in');return}
  manualStop=false;accountMode=true;accountPassword=password;desiredNick=nick;attempt=0;connect();
 });
+
+function setLoginMode(mode){
+ const account=mode==='account';
+ $('guest-fields').hidden=account;
+ $('account-notice').hidden=!account;
+ $('guest-mode').setAttribute('aria-pressed',String(!account));
+ $('account-mode').setAttribute('aria-pressed',String(account));
+ $('status').textContent=account?'Accountlogin geselecteerd':'Gastlogin geselecteerd';
+}
+$('guest-mode').addEventListener('click',()=>setLoginMode('guest'));
+$('account-mode').addEventListener('click',()=>setLoginMode('account'));
+setLoginMode('guest');
