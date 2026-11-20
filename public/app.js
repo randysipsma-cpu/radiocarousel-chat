@@ -163,10 +163,16 @@ async function refreshRadioMetadata(){
   if(!response.ok)throw Error('HTTP');const data=await response.json();
   if(!data||typeof data!=='object')return;
   const source=Array.isArray(data.icestats?.source)?data.icestats.source.find(item=>String(item.listenurl||'').includes('/stream'))||data.icestats.source[0]:data.icestats?.source;const song=typeof source?.title==='string'?source.title:typeof source?.yp_currently_playing==='string'?source.yp_currently_playing:typeof data.song==='string'?data.song:typeof data.title==='string'?data.title:typeof data.now_playing?.song?.text==='string'?data.now_playing.song.text:'';
+  const listeners=Number(source?.listeners);
+  const rawBitrate=source?.bitrate;
+  const bitrate=typeof rawBitrate==='number'?rawBitrate:typeof rawBitrate==='string'&&/^\\d+(?:\\.\\d+)?$/.test(rawBitrate.trim())?Number(rawBitrate):NaN;
+  const listenerText=Number.isInteger(listeners)&&listeners>=0?'Luisteraars: '+listeners:'Luisteraars: —';
+  const bitrateText=Number.isFinite(bitrate)&&bitrate>0?'Kwaliteit: '+bitrate+' kbps':'Kwaliteit: —';
+  $('radio-stats').textContent=listenerText+' · '+bitrateText;
   if(song){$('radio-track').textContent=song.slice(0,180);if(song!==lastCoverSong){lastCoverSong=song;void findAlbumCover(song)}}
   const cover=typeof data.art==='string'?data.art:typeof data.cover==='string'?data.cover:typeof data.now_playing?.song?.art==='string'?data.now_playing.song.art:'';
   if(cover&&validHttps(cover))$('radio-art').style.backgroundImage='url('+JSON.stringify(cover)+')';
- }catch{/* Unsupported metadata endpoints do not interrupt radio or chat */}
+ }catch{$('radio-stats').textContent='Luisteraars: — · Kwaliteit: —';/* Metadata failure does not interrupt radio or chat */}
 }
 applyRadio();void refreshRadioMetadata();
 radioRefresh=setInterval(()=>{if(!document.hidden)void refreshRadioMetadata()},30000);
