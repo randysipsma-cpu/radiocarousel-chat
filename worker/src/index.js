@@ -21,12 +21,12 @@ export default {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     server.accept();
-    handle(server).catch(() => { try { server.close(1011, 'Gateway error'); } catch {} });
+    handle(server, env).catch(() => { try { server.close(1011, 'Gateway error'); } catch {} });
     return new Response(null, { status: 101, webSocket: client });
   }
 };
 
-async function handle(ws) {
+async function handle(ws, env) {
   let tcp, writer, reader, closed = false, registered = false, joined = false, nick = '', lastSent = 0;
   let buffer = '';
   let accountPending = false;
@@ -40,6 +40,7 @@ async function handle(ws) {
   const publishUsers = () => send({ type: 'users', users: [...users.values()].sort((a,b)=>a.localeCompare(b)).slice(0,300) });
   let collectingNames = false;
   const send = obj => { try { ws.send(JSON.stringify(obj)); } catch {} };
+  const relay = obj => { if (!env.OBSERVER_SECRET || env.OBSERVER_SECRET.length < 32) return; const id=env.OBSERVER_HUB.idFromName('public'); void env.OBSERVER_HUB.get(id).fetch('https://internal/observe/internal',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(obj)}).catch(()=>{}); };
   const command = async line => {
     if (!writer || closed) return;
     if (/[\r\n\0]/.test(line)) throw new Error('Invalid IRC command');
@@ -171,7 +172,7 @@ async function handle(ws) {
           }
           if (code === 'PRIVMSG') {
             const parts = rest.split(' :');
-            if (parts[0]?.toLowerCase() === CHANNEL && parts.length > 1 && key(sender) !== key(nick)) send({ type: 'message', nick: sender, text: parts.slice(1).join(' :') });
+            if (parts[0]?.toLowerCase() === CHANNEL && parts.length > 1 && key(sender) !== key(nick)) { const text=parts.slice(1).join(' :');send({ type: 'message', nick: sender, text });relay({type:'message',nick:sender,text}); }
             else if(parts[0]?.toLowerCase()===key(nick)&&parts.length>1&&key(sender)!==key(nick))send({type:'private-message',nick:sender,target:nick,text:parts.slice(1).join(' :'),outgoing:false});
           }
           if (['471','473','474','475','477','404'].includes(code)) send({ type: 'error', message: 'IRC-server weigert toegang of berichten voor dit kanaal (' + code + ')' });
@@ -185,9 +186,15 @@ async function handle(ws) {
 // A feed-only relay. Never connects to IRC and never creates a visible nickname.
 // Disabled until OBSERVER_SECRET is set as a Cloudflare secret (>=32 characters).
 export class ObserverHub {
- constructor(state,env){this.env=env;this.clients=new Set();this.lastUsers=null;}
+ constructor(state,env){this.env=env;this.clients=new Set();this.lastUsers=null;this.recent=new Map();}
  async fetch(req){
   const url=new URL(req.url);
+  if(url.pathname==='/observe/internal'){
+   if(req.method!=='POST')return new Response('Method not allowed',{status:405});
+   let m;try{const body=await req.text();if(body.length>2048)return new Response('Too large',{status:413});m=JSON.parse(body)}catch{return new Response('Invalid JSON',{status:400})}
+   if(m.type==='message'&&typeof m.nick==='string'&&typeof m.text==='string'&&m.nick.length<=32&&m.text.length<=450){this.broadcastUnique(m);return new Response('OK')}
+   return new Response('Invalid event',{status:400});
+  }
   if(url.pathname==='/observe/publish'){
    if(req.method!=='POST')return new Response('Method not allowed',{status:405});
    if(req.headers.get('Authorization')!=='Bearer '+this.env.OBSERVER_SECRET)return new Response('Unauthorized',{status:401});
@@ -215,5 +222,6 @@ export class ObserverHub {
   server.addEventListener('close',cleanup);server.addEventListener('error',cleanup);
   return new Response(null,{status:101,webSocket:client});
  }
+ broadcastUnique(m){const key=m.nick+'\u0000'+m.text;const now=Date.now();if(now-(this.recent.get(key)||0)<2500)return;this.recent.set(key,now);if(this.recent.size>150){for(const [k,t] of this.recent)if(now-t>5000)this.recent.delete(k)}this.broadcast(m)}
  broadcast(m){const data=JSON.stringify(m);for(const ws of this.clients)try{ws.send(data)}catch{this.clients.delete(ws)}}
 }
