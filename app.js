@@ -97,8 +97,8 @@ $('emoji-picker').addEventListener('click',event=>{const button=event.target.clo
 applyPrefs();
 
 const radioAudio=$('radio-audio'),radioPlay=$('radio-play');
-let radioConfig={url:'https://cast.accessweb.be:3245/stream',metadataUrl:'',dj:''},radioRefresh=null;
-try{const saved=JSON.parse(localStorage.getItem('rc-radio-config')||'{}');if(saved&&typeof saved==='object')radioConfig={url:String(saved.url||'https://cast.accessweb.be:3245/stream'),metadataUrl:String(saved.metadataUrl||''),dj:String(saved.dj||'')}}catch{}
+let radioConfig={url:'https://cast.accessweb.be:3245/stream',metadataUrl:'https://cast.accessweb.be:3245/status-json.xsl',dj:''},radioRefresh=null;
+try{const saved=JSON.parse(localStorage.getItem('rc-radio-config')||'{}');if(saved&&typeof saved==='object')radioConfig={url:String(saved.url||'https://cast.accessweb.be:3245/stream'),metadataUrl:String(saved.metadataUrl||'https://cast.accessweb.be:3245/status-json.xsl'),dj:String(saved.dj||'')}}catch{}
 function validHttps(value){if(!value)return true;try{const u=new URL(value);return u.protocol==='https:'&&!!u.hostname&&!u.username&&!u.password}catch{return false}}
 function setRadioState(value){$('radio-state').textContent=value}
 function applyRadio(){
@@ -133,7 +133,7 @@ async function refreshRadioMetadata(){
   const response=await fetch(radioConfig.metadataUrl,{cache:'no-store',signal:AbortSignal.timeout(8000)});
   if(!response.ok)throw Error('HTTP');const data=await response.json();
   if(!data||typeof data!=='object')return;
-  const song=typeof data.song==='string'?data.song:typeof data.title==='string'?data.title:typeof data.now_playing?.song?.text==='string'?data.now_playing.song.text:'';
+  const source=Array.isArray(data.icestats?.source)?data.icestats.source.find(item=>String(item.listenurl||'').includes('/stream'))||data.icestats.source[0]:data.icestats?.source;const song=typeof source?.title==='string'?source.title:typeof source?.yp_currently_playing==='string'?source.yp_currently_playing:typeof data.song==='string'?data.song:typeof data.title==='string'?data.title:typeof data.now_playing?.song?.text==='string'?data.now_playing.song.text:'';
   if(song)$('radio-track').textContent=song.slice(0,180);
   const cover=typeof data.art==='string'?data.art:typeof data.cover==='string'?data.cover:typeof data.now_playing?.song?.art==='string'?data.now_playing.song.art:'';
   if(cover&&validHttps(cover))$('radio-art').style.backgroundImage='url('+JSON.stringify(cover)+')';
