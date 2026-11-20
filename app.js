@@ -35,7 +35,7 @@ function append(sender,body){
  time.className='chat-time';const now=new Date();time.dateTime=now.toISOString();time.textContent=now.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'});time.title='Ontvangsttijd op dit apparaat';
  heading.append(name,time);content.className='chat-text';content.textContent=body;p.append(heading,content);
  if(prefs.mentions&&desiredNick&&sender.toLowerCase()!==desiredNick.toLowerCase()&&body.toLowerCase().split(/[^a-z0-9_]+/i).includes(desiredNick.toLowerCase())){p.classList.add('mentioned');notifyChat('Je wordt genoemd door '+sender,body)};
- $('messages').append(p);while($('messages').children.length>250)$('messages').firstElementChild.remove();if(!prefs.autoscroll||nearBottom)log.scrollTop=log.scrollHeight
+ $('messages').append(p);while($('messages').children.length>250)$('messages').firstElementChild.remove();if(prefs.autoscroll&&nearBottom)log.scrollTop=log.scrollHeight
 }
 function enable(v){connected=v;if($('pm-input'))renderPm();$('login-panel').hidden=v;$('message').disabled=!v;$('sendbtn').disabled=!v;$('status').dataset.state=v?'online':'offline'}
 function stopHeartbeat(){if(heartbeatTimer!==null){clearInterval(heartbeatTimer);heartbeatTimer=null}}
