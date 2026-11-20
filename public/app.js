@@ -9,9 +9,9 @@ const $=id=>document.getElementById(id);
 const validNick=/^[A-Za-z\[\]\\`_^{|}][A-Za-z0-9\[\]\\`_^{|}-]{0,23}$/;
 let heartbeatTimer=null,lastPong=0;let socket=null,connected=false,desiredNick='',attempt=0,retryTimer=null,session=0,manualStop=false,accountMode=false,accountPassword=null;
 function status(value){$('status').textContent=value;$('status').dataset.state=connected?'online':'offline';$('connection-info').textContent=value}
-const prefs={compact:false,timestamps:true,mentions:true};
+const prefs={compact:false,timestamps:true,mentions:true,notifications:false,autoscroll:true};
 try{Object.assign(prefs,JSON.parse(localStorage.getItem('rc-chat-prefs')||'{}'))}catch{}
-function applyPrefs(){document.body.classList.toggle('compact-chat',!!prefs.compact);document.body.classList.toggle('hide-times',!prefs.timestamps);$('pref-compact').checked=!!prefs.compact;$('pref-time').checked=!!prefs.timestamps;$('pref-mentions').checked=!!prefs.mentions}
+function applyPrefs(){if($('pref-notifications'))$('pref-notifications').checked=!!prefs.notifications;if($('pref-autoscroll'))$('pref-autoscroll').checked=!!prefs.autoscroll;document.body.classList.toggle('compact-chat',!!prefs.compact);document.body.classList.toggle('hide-times',!prefs.timestamps);$('pref-compact').checked=!!prefs.compact;$('pref-time').checked=!!prefs.timestamps;$('pref-mentions').checked=!!prefs.mentions}
 function savePrefs(){try{localStorage.setItem('rc-chat-prefs',JSON.stringify(prefs))}catch{}applyPrefs()}
 
 const pmThreads=new Map();let activePm='',activeTab='public';
@@ -21,19 +21,21 @@ function showTab(tab){activeTab=tab;const privateMode=tab==='private';$('public-
 function openPm(nick){if(!validNick.test(nick)||nick.toLowerCase()===desiredNick.toLowerCase())return;const key=pmKey(nick);if(!pmThreads.has(key))pmThreads.set(key,{nick,lines:[],unread:0});activePm=key;pmThreads.get(key).unread=0;showTab('private');$('pm-input').focus()}
 function closePm(key){const thread=pmThreads.get(key);if(!thread)return;pmThreads.delete(key);if(activePm===key)activePm=pmThreads.keys().next().value||'';const next=pmThreads.get(activePm);if(next&&activeTab==='private')next.unread=0;updateUnread();renderPm()}
 function renderPm(){const list=$('pm-conversations');list.replaceChildren();for(const [key,thread] of pmThreads){const item=document.createElement('div'),b=document.createElement('button'),close=document.createElement('button');item.className='pm-thread'+(key===activePm?' selected':'');b.type='button';b.className='pm-thread-open';b.textContent=thread.nick;b.setAttribute('aria-pressed',String(key===activePm));if(thread.unread){const count=document.createElement('span');count.className='pm-badge';count.textContent=String(thread.unread);b.append(count)}b.addEventListener('click',()=>{activePm=key;thread.unread=0;updateUnread();renderPm()});close.type='button';close.className='pm-thread-close';close.textContent='×';close.title='Gesprek met '+thread.nick+' sluiten';close.setAttribute('aria-label','Gesprek met '+thread.nick+' sluiten');close.addEventListener('click',()=>closePm(key));item.append(b,close);list.append(item)}const messages=$('pm-messages');messages.replaceChildren();const thread=pmThreads.get(activePm);$('pm-input').disabled=!connected||!thread;$('pm-sendbtn').disabled=!connected||!thread;if(!thread){const p=document.createElement('p');p.className='muted';p.textContent='Kies een nickname om een privégesprek te openen.';messages.append(p);return}for(const line of thread.lines){const p=document.createElement('p'),heading=document.createElement('strong'),time=document.createElement('time'),body=document.createElement('span');p.className='pm-line'+(line.outgoing?' mine':'');heading.textContent=line.outgoing?'Jij':line.nick;time.textContent=line.time;body.textContent=line.text;p.append(heading,time,body);messages.append(p)}messages.scrollTop=messages.scrollHeight}
-function receivePm(msg){const other=msg.outgoing?String(msg.target||''):String(msg.nick||'');if(!validNick.test(other))return;const key=pmKey(other);if(!pmThreads.has(key))pmThreads.set(key,{nick:other,lines:[],unread:0});const thread=pmThreads.get(key);thread.lines.push({nick:String(msg.nick||other),text:String(msg.text||'').slice(0,450),outgoing:!!msg.outgoing,time:new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})});if(thread.lines.length>100)thread.lines.shift();if(!msg.outgoing&&(activeTab!=='private'||activePm!==key))thread.unread++;if(!activePm)activePm=key;updateUnread();if(activeTab==='private')renderPm()}
+function notifyChat(title,body){if(!prefs.notifications||document.visibilityState==='visible'||!('Notification' in window)||Notification.permission!=='granted')return;try{const notification=new Notification(title,{body:String(body).slice(0,160),tag:'radiocarousel-chat'});notification.onclick=()=>{window.focus();notification.close()}}catch{}}
+function receivePm(msg){const other=msg.outgoing?String(msg.target||''):String(msg.nick||'');if(!validNick.test(other))return;const key=pmKey(other);if(!pmThreads.has(key))pmThreads.set(key,{nick:other,lines:[],unread:0});const thread=pmThreads.get(key);thread.lines.push({nick:String(msg.nick||other),text:String(msg.text||'').slice(0,450),outgoing:!!msg.outgoing,time:new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})});if(thread.lines.length>100)thread.lines.shift();if(!msg.outgoing&&(activeTab!=='private'||activePm!==key))thread.unread++;if(!msg.outgoing)notifyChat('Privébericht van '+other,msg.text);if(!activePm)activePm=key;updateUnread();if(activeTab==='private')renderPm()}
 $('tab-public').addEventListener('click',()=>showTab('public'));$('tab-private').addEventListener('click',()=>showTab('private'));
 $('pm-open').addEventListener('click',()=>{const nick=$('pm-target').value.trim();if(validNick.test(nick))openPm(nick);else $('pm-target').focus()});
 $('pm-send').addEventListener('submit',event=>{event.preventDefault();const thread=pmThreads.get(activePm),value=$('pm-input').value.trim();if(!connected||!thread||!value||!socket||socket.readyState!==WebSocket.OPEN)return;socket.send(JSON.stringify({type:'private-message',target:thread.nick,text:value}));$('pm-input').value=''});
 
 function append(sender,body){
+ const log=$('messages'),nearBottom=log.scrollHeight-log.scrollTop-log.clientHeight<110;
  const p=document.createElement('p'),heading=document.createElement('span'),name=document.createElement('button'),time=document.createElement('time'),content=document.createElement('span');
  p.className='chat-line';heading.className='chat-meta';name.type='button';name.className='chat-nick';name.textContent=sender;name.title='Vermeld '+sender;
  name.addEventListener('click',()=>{if(!connected)return;openPm(sender)});
  time.className='chat-time';const now=new Date();time.dateTime=now.toISOString();time.textContent=now.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'});time.title='Ontvangsttijd op dit apparaat';
  heading.append(name,time);content.className='chat-text';content.textContent=body;p.append(heading,content);
- if(prefs.mentions&&desiredNick&&sender.toLowerCase()!==desiredNick.toLowerCase()&&body.toLowerCase().split(/[^a-z0-9_]+/i).includes(desiredNick.toLowerCase()))p.classList.add('mentioned');
- $('messages').append(p);while($('messages').children.length>250)$('messages').firstElementChild.remove();$('messages').scrollTop=$('messages').scrollHeight
+ if(prefs.mentions&&desiredNick&&sender.toLowerCase()!==desiredNick.toLowerCase()&&body.toLowerCase().split(/[^a-z0-9_]+/i).includes(desiredNick.toLowerCase())){p.classList.add('mentioned');notifyChat('Je wordt genoemd door '+sender,body)};
+ $('messages').append(p);while($('messages').children.length>250)$('messages').firstElementChild.remove();if(!prefs.autoscroll||nearBottom)log.scrollTop=log.scrollHeight
 }
 function enable(v){connected=v;if($('pm-input'))renderPm();$('login-panel').hidden=v;$('message').disabled=!v;$('sendbtn').disabled=!v;$('status').dataset.state=v?'online':'offline'}
 function stopHeartbeat(){if(heartbeatTimer!==null){clearInterval(heartbeatTimer);heartbeatTimer=null}}
@@ -59,14 +61,14 @@ function connect(){
    else if(msg.type==='message'&&typeof msg.text==='string'){append(String(msg.nick||'Gebruiker'),msg.text);mirrorPublic({type:'message',nick:String(msg.nick||'Gebruiker'),text:msg.text})}
    else if(msg.type==='private-message'&&typeof msg.text==='string')receivePm(msg);
    else if(msg.type==='topic'&&typeof msg.topic==='string'){currentChannelTopic=msg.topic;updateDjFromTopic()}
-   else if(msg.type==='users'&&Array.isArray(msg.users)){mirrorPublic({type:'users',users:msg.users});$('users').textContent=msg.users.join(', ')||'Geen gebruikers gevonden';$('user-count').textContent=String(msg.users.length)}
+   else if(msg.type==='users'&&Array.isArray(msg.users)){mirrorPublic({type:'users',users:msg.users});renderUsers(msg.users)}
    else if(msg.type==='error'){
     const message=String(msg.message||'Onbekende fout');append('Fout',message);status(message);
     if(accountMode||/Nickname niet beschikbaar|Ongeldige nickname/i.test(message)){manualStop=true;clearRetry()}
    }
   };
   ws.onerror=()=>{if(id===session)status('Verbindingsfout')};
-  ws.onclose=()=>{if(id!==session)return;mirrorPublic({type:'disconnected'});socket=null;stopHeartbeat();enable(false);$('users').textContent='Niet verbonden';$('user-count').textContent='';if(accountMode){manualStop=true;status('Accountverbinding verbroken – meld je opnieuw aan')}else if(!manualStop)reconnect()};
+  ws.onclose=()=>{if(id!==session)return;mirrorPublic({type:'disconnected'});socket=null;stopHeartbeat();enable(false);renderUsers([]);if(accountMode){manualStop=true;status('Accountverbinding verbroken – meld je opnieuw aan')}else if(!manualStop)reconnect()};
  }catch{reconnect()}
 }
 $('connect').addEventListener('click',()=>{
@@ -106,11 +108,14 @@ $('account-mode').addEventListener('click',()=>setLoginMode('account'));
 setLoginMode('guest');
 if(window.matchMedia('(max-width: 760px)').matches)$('users-details').open=false;
 
+let onlineUsers=[];
+function renderUsers(users){onlineUsers=users.filter(x=>typeof x==='string'&&validNick.test(x));const list=$('users');list.replaceChildren();const q=($('user-search')?.value||'').trim().toLowerCase();for(const nick of onlineUsers.filter(x=>x.toLowerCase().includes(q))){const b=document.createElement('button');b.type='button';b.className='user-chip';b.textContent=nick;b.title='Privégesprek met '+nick;b.addEventListener('click',()=>openPm(nick));list.append(b)}if(!list.childElementCount){const empty=document.createElement('span');empty.textContent=onlineUsers.length?'Geen overeenkomsten':'Geen gebruikers gevonden';list.append(empty)}$('user-count').textContent=String(onlineUsers.length)}
+$('user-search')?.addEventListener('input',()=>renderUsers(onlineUsers));
 const settings=$('settings-dialog');
 $('open-settings').addEventListener('click',()=>{applyPrefs();settings.showModal()});
 $('close-settings').addEventListener('click',()=>settings.close());
 settings.addEventListener('click',event=>{if(event.target===settings)settings.close()});
-for(const [id,key] of [['pref-compact','compact'],['pref-time','timestamps'],['pref-mentions','mentions']])$(id).addEventListener('change',event=>{prefs[key]=event.target.checked;savePrefs()});
+for(const [id,key] of [['pref-compact','compact'],['pref-time','timestamps'],['pref-mentions','mentions'],['pref-autoscroll','autoscroll'],['pref-notifications','notifications']])$(id).addEventListener('change',event=>{prefs[key]=event.target.checked;if(key==='notifications'&&prefs.notifications&&'Notification' in window&&Notification.permission==='default'){Notification.requestPermission().then(result=>{if(result!=='granted'){prefs.notifications=false;savePrefs()}})}savePrefs()});
 $('emoji-toggle').addEventListener('click',()=>{$('emoji-picker').hidden=!$('emoji-picker').hidden});
 $('emoji-picker').addEventListener('click',event=>{const button=event.target.closest('button[data-emoji]');if(!button)return;const input=$('message');input.value+=button.dataset.emoji;input.focus();$('emoji-picker').hidden=true});
 applyPrefs();
