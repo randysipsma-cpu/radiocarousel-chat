@@ -9,16 +9,28 @@ const prefs={compact:false,timestamps:true,mentions:true};
 try{Object.assign(prefs,JSON.parse(localStorage.getItem('rc-chat-prefs')||'{}'))}catch{}
 function applyPrefs(){document.body.classList.toggle('compact-chat',!!prefs.compact);document.body.classList.toggle('hide-times',!prefs.timestamps);$('pref-compact').checked=!!prefs.compact;$('pref-time').checked=!!prefs.timestamps;$('pref-mentions').checked=!!prefs.mentions}
 function savePrefs(){try{localStorage.setItem('rc-chat-prefs',JSON.stringify(prefs))}catch{}applyPrefs()}
+
+const pmThreads=new Map();let activePm='',activeTab='public',unreadPm=0;
+function showTab(tab){activeTab=tab;const privateMode=tab==='private';$('public-chat').hidden=privateMode;$('private-chat').hidden=!privateMode;$('tab-public').setAttribute('aria-selected',String(!privateMode));$('tab-private').setAttribute('aria-selected',String(privateMode));if(privateMode){unreadPm=0;updateUnread();renderPm()}}
+function updateUnread(){$('private-count').hidden=!unreadPm;$('private-count').textContent=String(unreadPm)}
+function pmKey(nick){return nick.toLowerCase()}
+function openPm(nick){if(!validNick.test(nick)||nick.toLowerCase()===desiredNick.toLowerCase())return;const key=pmKey(nick);if(!pmThreads.has(key))pmThreads.set(key,{nick,lines:[]});activePm=key;showTab('private');renderPm();$('pm-input').focus()}
+function renderPm(){const list=$('pm-conversations');list.replaceChildren();for(const [key,thread] of pmThreads){const b=document.createElement('button');b.type='button';b.textContent=thread.nick;b.setAttribute('aria-pressed',String(key===activePm));b.addEventListener('click',()=>{activePm=key;renderPm()});list.append(b)}const messages=$('pm-messages');messages.replaceChildren();const thread=pmThreads.get(activePm);$('pm-input').disabled=!connected||!thread;$('pm-sendbtn').disabled=!connected||!thread;if(!thread){const p=document.createElement('p');p.className='muted';p.textContent='Kies een nickname om een privégesprek te openen.';messages.append(p);return}for(const line of thread.lines){const p=document.createElement('p'),heading=document.createElement('strong'),time=document.createElement('time'),body=document.createElement('span');p.className='pm-line'+(line.outgoing?' mine':'');heading.textContent=line.outgoing?'Jij':line.nick;time.textContent=line.time;body.textContent=line.text;p.append(heading,time,body);messages.append(p)}messages.scrollTop=messages.scrollHeight}
+function receivePm(msg){const other=msg.outgoing?String(msg.target||''):String(msg.nick||'');if(!validNick.test(other))return;const key=pmKey(other);if(!pmThreads.has(key))pmThreads.set(key,{nick:other,lines:[]});const thread=pmThreads.get(key);thread.lines.push({nick:String(msg.nick||other),text:String(msg.text||'').slice(0,450),outgoing:!!msg.outgoing,time:new Date().toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'})});if(thread.lines.length>100)thread.lines.shift();if(!msg.outgoing&&(activeTab!=='private'||activePm!==key)){unreadPm++;updateUnread()}if(!activePm)activePm=key;if(activeTab==='private')renderPm()}
+$('tab-public').addEventListener('click',()=>showTab('public'));$('tab-private').addEventListener('click',()=>showTab('private'));
+$('pm-open').addEventListener('click',()=>{const nick=$('pm-target').value.trim();if(validNick.test(nick))openPm(nick);else $('pm-target').focus()});
+$('pm-send').addEventListener('submit',event=>{event.preventDefault();const thread=pmThreads.get(activePm),value=$('pm-input').value.trim();if(!connected||!thread||!value||!socket||socket.readyState!==WebSocket.OPEN)return;socket.send(JSON.stringify({type:'private-message',target:thread.nick,text:value}));$('pm-input').value=''});
+
 function append(sender,body){
  const p=document.createElement('p'),heading=document.createElement('span'),name=document.createElement('button'),time=document.createElement('time'),content=document.createElement('span');
  p.className='chat-line';heading.className='chat-meta';name.type='button';name.className='chat-nick';name.textContent=sender;name.title='Vermeld '+sender;
- name.addEventListener('click',()=>{if(!connected)return;const input=$('message');input.value+=(input.value&&!input.value.endsWith(' ')?' ':'')+sender+': ';input.focus()});
+ name.addEventListener('click',()=>{if(!connected)return;openPm(sender)});
  time.className='chat-time';const now=new Date();time.dateTime=now.toISOString();time.textContent=now.toLocaleTimeString('nl-NL',{hour:'2-digit',minute:'2-digit'});time.title='Ontvangsttijd op dit apparaat';
  heading.append(name,time);content.className='chat-text';content.textContent=body;p.append(heading,content);
  if(prefs.mentions&&desiredNick&&sender.toLowerCase()!==desiredNick.toLowerCase()&&body.toLowerCase().split(/[^a-z0-9_]+/i).includes(desiredNick.toLowerCase()))p.classList.add('mentioned');
  $('messages').append(p);while($('messages').children.length>250)$('messages').firstElementChild.remove();$('messages').scrollTop=$('messages').scrollHeight
 }
-function enable(v){connected=v;$('login-panel').hidden=v;$('message').disabled=!v;$('sendbtn').disabled=!v;$('status').dataset.state=v?'online':'offline'}
+function enable(v){connected=v;if($('pm-input'))renderPm();$('login-panel').hidden=v;$('message').disabled=!v;$('sendbtn').disabled=!v;$('status').dataset.state=v?'online':'offline'}
 function stopHeartbeat(){if(heartbeatTimer!==null){clearInterval(heartbeatTimer);heartbeatTimer=null}}
 function startHeartbeat(){stopHeartbeat();lastPong=Date.now();heartbeatTimer=setInterval(()=>{if(document.hidden||!socket||socket.readyState!==WebSocket.OPEN)return;if(Date.now()-lastPong>65000){status('Verbinding controleren…');socket.close();return}socket.send(JSON.stringify({type:'ping'}))},25000)}
 function clearRetry(){if(retryTimer!==null){clearTimeout(retryTimer);retryTimer=null}}
@@ -40,6 +52,7 @@ function connect(){
    if(msg.type==='ready'){attempt=0;enable(true);startHeartbeat();status(accountMode?'Verbonden als geregistreerde gebruiker':'Verbonden');if(!accountMode)try{localStorage.setItem('radiocarousel-nick',desiredNick)}catch{}}
    else if(msg.type==='account-verified')status('Account geverifieerd – kanaal openen…');
    else if(msg.type==='message'&&typeof msg.text==='string')append(String(msg.nick||'Gebruiker'),msg.text);
+   else if(msg.type==='private-message'&&typeof msg.text==='string')receivePm(msg);
    else if(msg.type==='topic'&&typeof msg.topic==='string'){currentChannelTopic=msg.topic;updateDjFromTopic()}
    else if(msg.type==='users'&&Array.isArray(msg.users)){$('users').textContent=msg.users.join(', ')||'Geen gebruikers gevonden';$('user-count').textContent=String(msg.users.length)}
    else if(msg.type==='error'){
