@@ -12,7 +12,7 @@ export default {
     const allowed = (env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim()).filter(Boolean);
     if (!allowed.length || !allowed.includes(origin)) return new Response('Origin not allowed', { status: 403 });
     if (request.headers.get('Upgrade')?.toLowerCase() !== 'websocket') return new Response('WebSocket required', { status: 426 });
-    if (new URL(request.url).pathname === '/observe') return env.OBSERVER_HUB.get(env.OBSERVER_HUB.idFromName('public')).fetch(request);
+    if (new URL(request.url).pathname === '/observe') return new Response('Observer tijdelijk uitgeschakeld: zichtbare IRC-deelnemer', {status:503});
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     server.accept();
