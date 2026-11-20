@@ -24,6 +24,7 @@ async function handle(ws) {
   let tcp, writer, reader, closed = false, registered = false, joined = false, nick = '', lastSent = 0;
   let buffer = '';
   let accountPending = false;
+  let pendingPassword = null;
   let accountVerified = false;
   let accountTimeout;
   const clearAccountTimeout = () => { if (accountTimeout) { clearTimeout(accountTimeout); accountTimeout = null; } };
@@ -41,6 +42,7 @@ async function handle(ws) {
   const cleanup = async () => {
     if (closed) return;
     closed = true;
+    pendingPassword = null;
     clearAccountTimeout();
     try { await writer?.close(); } catch {}
     try { await reader?.cancel(); } catch {}
@@ -62,16 +64,14 @@ async function handle(ws) {
         const password = accountMode ? msg.password : null;
         if (accountMode && (typeof password !== 'string' || password.length < 1 || password.length > 256 || /[\r\n\0]/.test(password))) { send({ type: 'error', message: 'Ongeldige accountgegevens' }); return; }
         registered = true; nick = msg.nick; accountPending = accountMode;
+        pendingPassword = password;
         try {
           tcp = connect({ hostname: HOST, port: PORT }, { secureTransport: 'on', allowHalfOpen: false });
           writer = tcp.writable.getWriter();
           reader = tcp.readable.getReader();
           await command('NICK ' + nick);
           await command('USER ' + nick + ' 0 * :RadioCarousel listener');
-          if (accountMode) {
-            await command('PRIVMSG NickServ :IDENTIFY ' + nick + ' ' + password);
-            accountTimeout = setTimeout(() => { if (accountPending && !accountVerified) { send({ type: 'error', message: 'Accountcontrole verlopen; probeer opnieuw' }); void cleanup(); } }, 15000);
-          }
+
           void readIrc();
         } catch {
           send({ type: 'error', message: 'IRC-server niet bereikbaar' });
@@ -105,7 +105,13 @@ async function handle(ws) {
           if (!match) continue;
           const [, prefix = '', code, rest = ''] = match;
           const sender = prefix.split('!')[0];
-          if (code === '001' && !accountPending) await joinChannel();
+          if (code === '001') {
+            if (accountPending) {
+              await command('PRIVMSG NickServ :IDENTIFY ' + nick + ' ' + pendingPassword);
+              pendingPassword = null;
+              accountTimeout = setTimeout(() => { if (accountPending && !accountVerified) { send({ type: 'error', message: 'Accountcontrole verlopen; probeer opnieuw' }); void cleanup(); } }, 15000);
+            } else await joinChannel();
+          }
           if (accountPending && (code === '900' || (code === 'NOTICE' && sender.toLowerCase() === 'nickserv' && /identified|recognized|geïdentificeerd|herkend|successfully|logged in/i.test(rest)))) {
             accountPending = false; accountVerified = true; clearAccountTimeout(); send({ type: 'account-verified' }); await joinChannel();
           }
