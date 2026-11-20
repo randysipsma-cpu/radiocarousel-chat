@@ -1,6 +1,10 @@
 'use strict';
 const GATEWAY_URL='wss://radiocarousel-irc-gateway-test.randysipsma.workers.dev/';
 const CHANNEL='#radiocarousel';
+// Local read-only mirror for another tab on the same device/origin. Never forwards PMs.
+const observerChannel=typeof BroadcastChannel==='function'?new BroadcastChannel('radiocarousel-public-observer-v1'):null;
+function mirrorPublic(message){if(observerChannel)observerChannel.postMessage(message)}
+observerChannel?.addEventListener('message',event=>{if(event.data?.type==='hello'&&connected)mirrorPublic({type:'ready'})});
 const $=id=>document.getElementById(id);
 const validNick=/^[A-Za-z\[\]\\`_^{|}][A-Za-z0-9\[\]\\`_^{|}-]{0,23}$/;
 let heartbeatTimer=null,lastPong=0;let socket=null,connected=false,desiredNick='',attempt=0,retryTimer=null,session=0,manualStop=false,accountMode=false,accountPassword=null;
@@ -50,19 +54,19 @@ function connect(){
    if(id!==session)return;
    let msg;try{msg=JSON.parse(e.data)}catch{return}
    if(msg.type==='pong'){lastPong=Date.now();return}
-   if(msg.type==='ready'){attempt=0;enable(true);startHeartbeat();status(accountMode?'Verbonden als geregistreerde gebruiker':'Verbonden');if(!accountMode)try{localStorage.setItem('radiocarousel-nick',desiredNick)}catch{}}
+   if(msg.type==='ready'){mirrorPublic({type:'ready'});attempt=0;enable(true);startHeartbeat();status(accountMode?'Verbonden als geregistreerde gebruiker':'Verbonden');if(!accountMode)try{localStorage.setItem('radiocarousel-nick',desiredNick)}catch{}}
    else if(msg.type==='account-verified')status('Account geverifieerd – kanaal openen…');
-   else if(msg.type==='message'&&typeof msg.text==='string')append(String(msg.nick||'Gebruiker'),msg.text);
+   else if(msg.type==='message'&&typeof msg.text==='string'){append(String(msg.nick||'Gebruiker'),msg.text);mirrorPublic({type:'message',nick:String(msg.nick||'Gebruiker'),text:msg.text})}
    else if(msg.type==='private-message'&&typeof msg.text==='string')receivePm(msg);
    else if(msg.type==='topic'&&typeof msg.topic==='string'){currentChannelTopic=msg.topic;updateDjFromTopic()}
-   else if(msg.type==='users'&&Array.isArray(msg.users)){$('users').textContent=msg.users.join(', ')||'Geen gebruikers gevonden';$('user-count').textContent=String(msg.users.length)}
+   else if(msg.type==='users'&&Array.isArray(msg.users)){mirrorPublic({type:'users',users:msg.users});$('users').textContent=msg.users.join(', ')||'Geen gebruikers gevonden';$('user-count').textContent=String(msg.users.length)}
    else if(msg.type==='error'){
     const message=String(msg.message||'Onbekende fout');append('Fout',message);status(message);
     if(accountMode||/Nickname niet beschikbaar|Ongeldige nickname/i.test(message)){manualStop=true;clearRetry()}
    }
   };
   ws.onerror=()=>{if(id===session)status('Verbindingsfout')};
-  ws.onclose=()=>{if(id!==session)return;socket=null;stopHeartbeat();enable(false);$('users').textContent='Niet verbonden';$('user-count').textContent='';if(accountMode){manualStop=true;status('Accountverbinding verbroken – meld je opnieuw aan')}else if(!manualStop)reconnect()};
+  ws.onclose=()=>{if(id!==session)return;mirrorPublic({type:'disconnected'});socket=null;stopHeartbeat();enable(false);$('users').textContent='Niet verbonden';$('user-count').textContent='';if(accountMode){manualStop=true;status('Accountverbinding verbroken – meld je opnieuw aan')}else if(!manualStop)reconnect()};
  }catch{reconnect()}
 }
 $('connect').addEventListener('click',()=>{
