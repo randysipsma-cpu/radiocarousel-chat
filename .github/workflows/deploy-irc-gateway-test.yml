@@ -1,0 +1,31 @@
+name: Deploy RadioCarousel IRC test gateway
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - 'worker/**'
+      - '.github/workflows/deploy-irc-gateway-test.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: radiocarousel-irc-gateway-test
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy test Worker only
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out develop
+        uses: actions/checkout@v4
+      - name: Deploy Cloudflare test Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: worker
+          command: deploy
