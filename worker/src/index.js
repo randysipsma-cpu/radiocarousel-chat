@@ -123,6 +123,14 @@ async function handle(ws) {
           if (code === 'JOIN' && sender.toLowerCase() === nick.toLowerCase()) {
             joined = true; send({ type: 'ready' }); await command('NAMES ' + CHANNEL);
           }
+          if (code === '332') {
+            const topic = rest.includes(' :') ? rest.split(' :').slice(1).join(' :') : '';
+            if (topic) send({ type: 'topic', topic: topic.slice(0, 1000) });
+          }
+          if (code === 'TOPIC' && rest.toLowerCase().startsWith(CHANNEL.toLowerCase() + ' :')) {
+            send({ type: 'topic', topic: rest.slice(CHANNEL.length + 2, CHANNEL.length + 1002) });
+          }
+          if (code === '331') send({ type: 'topic', topic: '' });
           if (code === '353') {
             if (!collectingNames) { users.clear(); collectingNames = true; }
             const names = rest.split(' :')[1];
