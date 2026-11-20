@@ -122,7 +122,7 @@ $('radio-save').addEventListener('click',()=>{
  if(!validHttps(url)||!validHttps(metadataUrl)){setRadioState('Gebruik een geldige HTTPS-link');return}
  const changed=url!==radioConfig.url;
  radioConfig={url,metadataUrl,dj};try{localStorage.setItem('rc-radio-config',JSON.stringify(radioConfig))}catch{}
- if(changed){radioAudio.pause();radioAudio.removeAttribute('src');radioAudio.load();radioPlay.textContent='▶';$('radio-track').textContent='Nog geen nummerinformatie';$('radio-art').style.backgroundImage=''}
+ if(changed){radioAudio.pause();radioAudio.removeAttribute('src');radioAudio.load();radioPlay.textContent='▶';$('radio-track').textContent='Nog geen nummerinformatie';lastCoverSong='';coverRequestId++;clearCover()}
  applyRadio();settings.close();void refreshRadioMetadata()
 });
 radioPlay.addEventListener('click',async()=>{
@@ -136,6 +136,26 @@ radioAudio.addEventListener('playing',()=>{radioPlay.textContent='❚❚';radioP
 radioAudio.addEventListener('pause',()=>{radioPlay.textContent='▶';radioPlay.setAttribute('aria-label','Radio afspelen');if(radioConfig.url)setRadioState('Gepauzeerd')});
 radioAudio.addEventListener('waiting',()=>setRadioState('Stream bufferen…'));
 radioAudio.addEventListener('error',()=>setRadioState('Stream niet bereikbaar of niet ondersteund'));
+let lastCoverSong='',coverRequestId=0;
+function normalizeMusic(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim()}
+function clearCover(){const art=$('radio-art');art.style.backgroundImage='';art.textContent='🎵';art.title='Geen bevestigde albumhoes beschikbaar'}
+async function findAlbumCover(song){
+ const id=++coverRequestId;clearCover();
+ const parts=song.split(/\s+[-–—]\s+/);if(parts.length<2)return;
+ const artist=parts.shift().trim(),title=parts.join(' - ').trim();
+ if(!artist||!title)return;
+ try{
+  const endpoint=new URL('https://itunes.apple.com/search');endpoint.searchParams.set('term',artist+' '+title);endpoint.searchParams.set('entity','song');endpoint.searchParams.set('limit','15');endpoint.searchParams.set('country','nl');
+  const response=await fetch(endpoint.toString(),{signal:AbortSignal.timeout(7000)});
+  if(!response.ok)return;const data=await response.json();
+  if(id!==coverRequestId)return;
+  const match=(Array.isArray(data.results)?data.results:[]).find(item=>normalizeMusic(item.artistName)===normalizeMusic(artist)&&normalizeMusic(item.trackName)===normalizeMusic(title)&&typeof item.artworkUrl100==='string');
+  if(!match)return;
+  const url=match.artworkUrl100.replace(/\/100x100bb\./,'/300x300bb.');
+  if(!validHttps(url))return;
+  const img=new Image();img.onload=()=>{if(id!==coverRequestId)return;const art=$('radio-art');art.style.backgroundImage='url('+JSON.stringify(url)+')';art.textContent='';art.title='Albumhoes uit Apple Music-catalogus'};img.src=url;
+ }catch{/* Geen betrouwbare match of netwerkfout: behoud standaardicoon */}
+}
 async function refreshRadioMetadata(){
  if(!radioConfig.metadataUrl||document.hidden)return;
  try{
@@ -143,7 +163,7 @@ async function refreshRadioMetadata(){
   if(!response.ok)throw Error('HTTP');const data=await response.json();
   if(!data||typeof data!=='object')return;
   const source=Array.isArray(data.icestats?.source)?data.icestats.source.find(item=>String(item.listenurl||'').includes('/stream'))||data.icestats.source[0]:data.icestats?.source;const song=typeof source?.title==='string'?source.title:typeof source?.yp_currently_playing==='string'?source.yp_currently_playing:typeof data.song==='string'?data.song:typeof data.title==='string'?data.title:typeof data.now_playing?.song?.text==='string'?data.now_playing.song.text:'';
-  if(song)$('radio-track').textContent=song.slice(0,180);
+  if(song){$('radio-track').textContent=song.slice(0,180);if(song!==lastCoverSong){lastCoverSong=song;void findAlbumCover(song)}}
   const cover=typeof data.art==='string'?data.art:typeof data.cover==='string'?data.cover:typeof data.now_playing?.song?.art==='string'?data.now_playing.song.art:'';
   if(cover&&validHttps(cover))$('radio-art').style.backgroundImage='url('+JSON.stringify(cover)+')';
  }catch{/* Unsupported metadata endpoints do not interrupt radio or chat */}
