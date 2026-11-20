@@ -4,3 +4,7 @@ compatibility_date = "2026-11-01"
 
 # Configure ALLOWED_ORIGINS in the Worker environment before deployment.
 # Example: https://your-preview.pages.dev (exact origin, no trailing slash).
+
+# Keep the allowed browser origin under version control across deployments.
+[vars]
+ALLOWED_ORIGINS = "https://radiocarousel-chat-test.pages.dev"
