@@ -56,6 +56,7 @@ async function handle(ws) {
       if (typeof event.data !== 'string' || event.data.length > 2048) return;
       let msg;
       try { msg = JSON.parse(event.data); } catch { return; }
+      if (msg.type === 'ping') { send({type:'pong'}); return; }
       if (!registered && (msg.type === 'join' || msg.type === 'account-login')) {
         if (msg.channel !== CHANNEL || typeof msg.nick !== 'string' || !nickPattern.test(msg.nick)) {
           send({ type: 'error', message: 'Ongeldige nickname of kanaal' }); return;
